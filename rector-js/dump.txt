@@ -1,0 +1,46 @@
+// public component(name:string, comonentBuilder:() => HTMLElement) {
+  //   if (typeof name !== "string") {
+  //     throw new RectorError("Component name must be of string type");
+  //   }
+
+  //   name = name.trim();
+
+  //   if (!name) {
+  //     throw new RectorError("Component name should be a valid string");
+  //   }
+
+  //   if(this.components.has(name)){
+  //     throw new RectorError(`Component named '${name}' already registered`);
+  //   }
+
+  //   this.components.set(name, comonentBuilder);
+  // }
+
+  // public Routes(routes: { [key: string]: () => HTMLElement }) {
+  //   if (typeof routes !== "object" || Array.isArray(routes)) {
+  //     throw new RectorError("Routes must be an object");
+  //   }
+
+  //   Object.entries(routes).forEach(([path, component]) => {
+  //     if (typeof path !== "string" || !path.trim()) {
+  //       throw new RectorError("Route path must be a valid string");
+  //     }
+
+  //     if (typeof component !== "function") {
+  //       throw new RectorError("Route component must be a function");
+  //     }
+
+  //     this.routes[path] = component;
+  //   });
+  // }
+
+  // public navigate(path: string) {
+  //   history.pushState({}, "", path);
+  //   const component = this.routes[path];
+  //   this.renderRoot(component);
+  // }
+
+
+IS_1:Global State get populated everytime visit that component.
+IS_2:Navogation shoud be done by full cotroll , .navigate, manually write url , using broweser back & next page button.
+IS_3:Make Layout Works better.
