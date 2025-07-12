@@ -1,8 +1,8 @@
-type Attrs = string | { [key: string]: any } | HTMLElement[];
+type Attrs = { [key: string]: any };
 type Child = HTMLElement | string | number;
 
 type ElementFunction = (
-  ...args: Attrs[]
+  attributes: Attrs | HTMLElement
 ) => HTMLElement | ((...children: Child[]) => HTMLElement);
 
 type TagName = keyof HTMLElementTagNameMap;

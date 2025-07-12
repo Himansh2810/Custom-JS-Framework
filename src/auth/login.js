@@ -1,8 +1,9 @@
 import { Rector, initGlobalState, initState } from "../../rector-js/rector";
+import { isAlreadyLogin } from "../utils";
 
 const E = Rector.elements;
 
-function Login() {
+const LoginUtils = () => {
   const { state, globalState } = Rector.component();
   const setLoginData = initState("loginData", {
     username: "",
@@ -20,11 +21,27 @@ function Login() {
       loginData.username === user.username &&
       loginData.password === user.password
     ) {
+      localStorage.setItem("accessToken", "RectorJS");
       Rector.navigate("/");
     } else {
       setErrorMessage("INVALID Username or Password.");
     }
   };
+
+  return {
+    setLoginData,
+    handleLogin,
+  };
+};
+
+function Login() {
+  if (isAlreadyLogin()) {
+    Rector.navigate("/");
+    return;
+  }
+
+  const { handleLogin, setLoginData } = LoginUtils();
+
   return E.div({ class: "bg-gray-100 p-4 flex flex-col" })(
     E.h1("Welcome to Login"),
     E.input({
@@ -48,7 +65,7 @@ function Login() {
     E.button({
       class: "text-indigo-500",
       onclick: () => Rector.navigate("/signup"),
-    })("Dont have account ? CREATE"),
+    })("Don't have account ? CREATE"),
 
     E.button({
       class: "text-indigo-500",
@@ -66,6 +83,10 @@ const setGlobUSer = initGlobalState("user", {
 });
 
 function SignUp() {
+  if (isAlreadyLogin()) {
+    Rector.navigate("/");
+    return;
+  }
   const { state } = Rector.component();
   const setUSerData = initState("data", {
     name: "",

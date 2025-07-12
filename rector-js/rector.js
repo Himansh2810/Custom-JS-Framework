@@ -1,3 +1,12 @@
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 import { estimateObjectSize, isEqual, reservedJSKeys, selfClosingTags, } from "./utils.js";
 const GLOBAL = "global";
 class RectorError extends Error {
@@ -29,30 +38,47 @@ class RectorJS {
         this.routes = {};
         this.elements = new Proxy({}, {
             get: (_, tag) => {
-                return (...args) => this.createElement(tag, args);
+                return (attributes) => this.createElement(tag, attributes);
             },
         });
     }
     // -----Public methods----- //
     Routes(routes) {
-        Object.entries(routes).forEach(([path, component]) => {
-            if (typeof path !== "string" || !path.trim()) {
-                throw new RectorError("Route path must be a valid string");
-            }
-            if (typeof component !== "function") {
-                if (!(component === null || component === void 0 ? void 0 : component.layout)) {
-                    throw new RectorError("Route component/layout must be a function");
-                }
-                Object.entries(component).forEach(([rpath, rcmp]) => {
-                    if (rpath !== "layout" && rpath.startsWith("/")) {
-                        this.routes[rpath] = () => component.layout(rcmp);
-                    }
-                });
+        window.addEventListener("popstate", () => {
+            const pathName = window.location.pathname;
+            this.navigate(pathName);
+        });
+        Object.entries(routes).forEach(([path, routeComp]) => {
+            if (typeof routeComp === "function") {
+                this.routes[path] = routeComp;
             }
             else {
-                this.routes[path] = component;
+                Object.assign(this.routes, routeComp);
             }
         });
+    }
+    ProtectedRoutes(RouteAccess) {
+        this.routeAccess = {
+            protectedRoutes: new Set(RouteAccess.routes),
+            grantAccess: RouteAccess.grantAccess,
+            onFallback: RouteAccess.onFallback,
+        };
+    }
+    Layout(childRoutes, layoutComponent) {
+        let routes = {};
+        const buildLayout = (cr) => {
+            Object.entries(cr).forEach(([path, rl]) => {
+                let routeEl = rl;
+                if (typeof routeEl === "function") {
+                    routes[path] = () => layoutComponent(routeEl);
+                }
+                else {
+                    buildLayout(routeEl);
+                }
+            });
+        };
+        buildLayout(childRoutes);
+        return routes;
     }
     routeCleanUp() {
         var _a, _b, _c, _d;
@@ -64,9 +90,7 @@ class RectorJS {
     navigate(path) {
         history.pushState({}, "", path);
         this.routeCleanUp();
-        this.renderRoot({
-            initialPath: path,
-        });
+        this.renderRoot();
     }
     stateUsage(scope) {
         var _a;
@@ -95,24 +119,36 @@ class RectorJS {
             throw new RectorError("You can only call 'Rector.component()' inside functions");
         }
     }
-    renderRoot(options = {
-        initialPath: "/",
-        logLoadingTime: false,
-    }) {
-        var _a;
-        const initPath = (_a = options === null || options === void 0 ? void 0 : options.initialPath) !== null && _a !== void 0 ? _a : "/";
-        const app = this.routes[initPath];
-        if (!app) {
-            throw new RectorError("INVALID ROUTE: Define route first.");
-        }
-        const body = document.querySelector("body");
-        body.innerHTML = ""; // Clear existing content
-        history.pushState({}, "", initPath);
-        this.appStarted = true;
-        (options === null || options === void 0 ? void 0 : options.logLoadingTime) && console.time("App_loaded_in");
-        body.append(app());
-        (options === null || options === void 0 ? void 0 : options.logLoadingTime) && console.timeEnd("App_loaded_in");
-        this.appStarted = false;
+    checkRouteAccess(path) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const isPathProtected = this.routeAccess.protectedRoutes.has(path);
+            if (isPathProtected) {
+                const hasAccess = this.routeAccess.grantAccess();
+                return hasAccess;
+            }
+            return true;
+        });
+    }
+    renderRoot() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const initPath = window.location.pathname;
+            const app = this.routes[initPath];
+            if (!app) {
+                throw new RectorError(`INVALID ROUTE: '${initPath}' route  is not initialized.`);
+            }
+            const isRouteAccessible = yield this.checkRouteAccess(initPath);
+            if (!isRouteAccessible) {
+                this.routeAccess.onFallback();
+                return;
+            }
+            const body = document.querySelector("body");
+            body.innerHTML = ""; // Clear existing content
+            this.appStarted = true;
+            false && console.time("App_loaded_in");
+            body.append(app());
+            false && console.timeEnd("App_loaded_in");
+            this.appStarted = false;
+        });
     }
     registerEvents(events) {
         Object.entries(events).forEach(([key, val]) => {
@@ -496,68 +532,40 @@ class RectorJS {
         const identifiers = matches.map((m) => m[1]);
         return [...new Set(identifiers)];
     }
-    createElement(tag, args) {
+    createElement(tag, attributes) {
         this.renderDepth++;
         const elem = document.createElement(tag);
         let finalEl;
         let prChildren = [];
-        args.forEach((atr) => {
-            if (typeof atr === "number") {
-                prChildren.push(atr);
-            }
-            else if (atr instanceof HTMLElement || atr instanceof Text) {
-                prChildren.push(atr);
-            }
-            else if (typeof atr === "string") {
-                let atrTrim = atr.trim();
-                if (atrTrim.startsWith(".")) {
-                    let cls = atrTrim.slice(1);
-                    elem.setAttribute("class", cls);
-                }
-                else if (atrTrim.startsWith("#")) {
-                    let id = atrTrim.slice(1);
-                    elem.setAttribute("id", id);
-                }
-                else if (this.isValidKeyPair(atrTrim)) {
-                    const [key, value] = atrTrim.split("=");
-                    if (key.trim() === "ref") {
-                        this.refs[value] = elem;
-                    }
-                    else if (key.startsWith("on")) {
-                        elem.addEventListener(key.slice(2), this.events[value]);
-                    }
-                    else {
-                        elem.setAttribute(key, value);
-                    }
+        if (Array.isArray(attributes)) {
+            throw new RectorError("Array is not allowed as attribute.");
+        }
+        if (typeof attributes === "number" || typeof attributes === "string") {
+            prChildren.push(attributes);
+        }
+        else if (attributes instanceof HTMLElement ||
+            attributes instanceof Text) {
+            prChildren.push(attributes);
+        }
+        else if (typeof attributes === "object") {
+            Object.entries(attributes).forEach(([key, val]) => {
+                if (key.startsWith("on")) {
+                    elem.addEventListener(key.slice(2), val);
                 }
                 else {
-                    prChildren.push(atr);
-                }
-            }
-            else if (Array.isArray(atr)) {
-                prChildren.push(...atr);
-            }
-            else if (typeof atr === "object") {
-                Object.entries(atr).forEach(([key, val]) => {
-                    const value = val;
-                    if (key.startsWith("on")) {
-                        elem.addEventListener(key.slice(2), val);
+                    if (key === "checked") {
+                        // @ts-ignore
+                        elem.checked = value;
+                    }
+                    else if (key.trim() === "ref") {
+                        this.refs[val] = elem;
                     }
                     else {
-                        if (key === "checked") {
-                            // @ts-ignore
-                            elem.checked = value;
-                        }
-                        else if (key.trim() === "ref") {
-                            this.refs[value] = elem;
-                        }
-                        else {
-                            elem.setAttribute(key, value);
-                        }
+                        elem.setAttribute(key, val);
                     }
-                });
-            }
-        });
+                }
+            });
+        }
         const finish = (el) => {
             this.renderDepth--;
             if (this.renderDepth === 0) {

@@ -43,14 +43,19 @@ class RectorJS {
   private renderDepth = 0;
   private appStarted = false;
   private routes: { [route: string]: () => HTMLElement } = {};
+  private routeAccess: {
+    protectedRoutes: Set<string>;
+    grantAccess: () => boolean;
+    onFallback: () => void;
+  };
 
   constructor() {
     this.elements = new Proxy({} as RectorElement, {
       get: (_, tag: string) => {
         return (
-          ...args: Attrs[]
+          attributes: Attrs | HTMLElement
         ): HTMLElement | ((...children) => HTMLElement) =>
-          this.createElement(tag, args);
+          this.createElement(tag, attributes);
       },
     });
   }
@@ -58,25 +63,49 @@ class RectorJS {
   // -----Public methods----- //
 
   public Routes(routes: { [path: string]: any }) {
-    Object.entries(routes).forEach(([path, component]) => {
-      if (typeof path !== "string" || !path.trim()) {
-        throw new RectorError("Route path must be a valid string");
-      }
+    window.addEventListener("popstate", () => {
+      const pathName = window.location.pathname;
+      this.navigate(pathName);
+    });
 
-      if (typeof component !== "function") {
-        if (!component?.layout) {
-          throw new RectorError("Route component/layout must be a function");
-        }
-
-        Object.entries(component).forEach(([rpath, rcmp]) => {
-          if (rpath !== "layout" && rpath.startsWith("/")) {
-            this.routes[rpath] = () => component.layout(rcmp);
-          }
-        });
+    Object.entries(routes).forEach(([path, routeComp]) => {
+      if (typeof routeComp === "function") {
+        this.routes[path] = routeComp;
       } else {
-        this.routes[path] = component;
+        Object.assign(this.routes, routeComp);
       }
     });
+  }
+
+  public ProtectedRoutes(RouteAccess: {
+    routes: string[];
+    grantAccess: () => boolean;
+    onFallback: () => void;
+  }) {
+    this.routeAccess = {
+      protectedRoutes: new Set(RouteAccess.routes),
+      grantAccess: RouteAccess.grantAccess,
+      onFallback: RouteAccess.onFallback,
+    };
+  }
+
+  public Layout(
+    childRoutes: { [path: string]: any },
+    layoutComponent: (currentRoute: () => HTMLElement) => HTMLElement
+  ) {
+    let routes = {};
+    const buildLayout = (cr) => {
+      Object.entries(cr).forEach(([path, rl]) => {
+        let routeEl = rl as any;
+        if (typeof routeEl === "function") {
+          routes[path] = () => layoutComponent(routeEl);
+        } else {
+          buildLayout(routeEl);
+        }
+      });
+    };
+    buildLayout(childRoutes);
+    return routes;
   }
 
   private routeCleanUp() {
@@ -89,9 +118,7 @@ class RectorJS {
   public navigate(path: string) {
     history.pushState({}, "", path);
     this.routeCleanUp();
-    this.renderRoot({
-      initialPath: path,
-    });
+    this.renderRoot();
   }
 
   private stateUsage(scope: string) {
@@ -127,26 +154,39 @@ class RectorJS {
     }
   }
 
-  public renderRoot(
-    options: { initialPath: string; logLoadingTime?: boolean } = {
-      initialPath: "/",
-      logLoadingTime: false,
+  private async checkRouteAccess(path: string) {
+    const isPathProtected = this.routeAccess.protectedRoutes.has(path);
+    if (isPathProtected) {
+      const hasAccess = this.routeAccess.grantAccess();
+      return hasAccess;
     }
-  ) {
-    const initPath = options?.initialPath ?? "/";
+    return true;
+  }
+
+  public async renderRoot() {
+    const initPath = window.location.pathname;
 
     const app = this.routes[initPath];
     if (!app) {
-      throw new RectorError("INVALID ROUTE: Define route first.");
+      throw new RectorError(
+        `INVALID ROUTE: '${initPath}' route  is not initialized.`
+      );
     }
+
+    const isRouteAccessible = await this.checkRouteAccess(initPath);
+
+    if (!isRouteAccessible) {
+      this.routeAccess.onFallback();
+      return;
+    }
+
     const body = document.querySelector("body");
 
     body.innerHTML = ""; // Clear existing content
-    history.pushState({}, "", initPath);
     this.appStarted = true;
-    options?.logLoadingTime && console.time("App_loaded_in");
+    false && console.time("App_loaded_in");
     body.append(app());
-    options?.logLoadingTime && console.timeEnd("App_loaded_in");
+    false && console.timeEnd("App_loaded_in");
     this.appStarted = false;
   }
 
@@ -682,7 +722,7 @@ class RectorJS {
     return [...new Set(identifiers)];
   }
 
-  private createElement(tag: string, args: Attrs[]) {
+  private createElement(tag: string, attributes: Attrs | HTMLElement) {
     this.renderDepth++;
     const elem = document.createElement(tag);
 
@@ -690,53 +730,33 @@ class RectorJS {
 
     let prChildren = [];
 
-    args.forEach((atr) => {
-      if (typeof atr === "number") {
-        prChildren.push(atr);
-      } else if (atr instanceof HTMLElement || atr instanceof Text) {
-        prChildren.push(atr);
-      } else if (typeof atr === "string") {
-        let atrTrim = atr.trim();
-        if (atrTrim.startsWith(".")) {
-          let cls = atrTrim.slice(1);
+    if (Array.isArray(attributes)) {
+      throw new RectorError("Array is not allowed as attribute.");
+    }
 
-          elem.setAttribute("class", cls);
-        } else if (atrTrim.startsWith("#")) {
-          let id = atrTrim.slice(1);
-
-          elem.setAttribute("id", id);
-        } else if (this.isValidKeyPair(atrTrim)) {
-          const [key, value] = atrTrim.split("=");
-          if (key.trim() === "ref") {
-            this.refs[value] = elem;
-          } else if (key.startsWith("on")) {
-            elem.addEventListener(key.slice(2), this.events[value]);
-          } else {
-            elem.setAttribute(key, value);
-          }
+    if (typeof attributes === "number" || typeof attributes === "string") {
+      prChildren.push(attributes);
+    } else if (
+      attributes instanceof HTMLElement ||
+      attributes instanceof Text
+    ) {
+      prChildren.push(attributes);
+    } else if (typeof attributes === "object") {
+      Object.entries(attributes).forEach(([key, val]) => {
+        if (key.startsWith("on")) {
+          elem.addEventListener(key.slice(2), val);
         } else {
-          prChildren.push(atr);
-        }
-      } else if (Array.isArray(atr)) {
-        prChildren.push(...atr);
-      } else if (typeof atr === "object") {
-        Object.entries(atr).forEach(([key, val]) => {
-          const value = val as any;
-          if (key.startsWith("on")) {
-            elem.addEventListener(key.slice(2), val);
+          if (key === "checked") {
+            // @ts-ignore
+            elem.checked = value;
+          } else if (key.trim() === "ref") {
+            this.refs[val] = elem;
           } else {
-            if (key === "checked") {
-              // @ts-ignore
-              elem.checked = value;
-            } else if (key.trim() === "ref") {
-              this.refs[value] = elem;
-            } else {
-              elem.setAttribute(key, value);
-            }
+            elem.setAttribute(key, val);
           }
-        });
-      }
-    });
+        }
+      });
+    }
 
     const finish = (el: HTMLElement) => {
       this.renderDepth--;
