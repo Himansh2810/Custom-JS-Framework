@@ -146,4 +146,22 @@ function estimateObjectSize(...args): string {
   return `${(totalSize / 1024).toFixed(3)} KB`;
 }
 
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize };
+function isComponentFunction(fn: Function): string | false {
+  const source = fn.toString();
+  if (
+    source.trim() === "attributes => this.createElement(tag, attributes)" &&
+    !fn?.name
+  ) {
+    return false;
+  }
+
+  return fn?.name;
+}
+
+export {
+  isEqual,
+  reservedJSKeys,
+  selfClosingTags,
+  estimateObjectSize,
+  isComponentFunction,
+};

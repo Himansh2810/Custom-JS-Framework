@@ -1,11 +1,12 @@
 import {
   estimateObjectSize,
+  isComponentFunction,
   isEqual,
   reservedJSKeys,
   selfClosingTags,
 } from "./utils.js";
 import {
-  RectorElement,
+  RectorElements,
   StateBlockConfig,
   StateBlocks,
   StateUsage,
@@ -30,7 +31,7 @@ class RectorError extends Error {
 }
 
 class RectorJS {
-  public elements: RectorElement;
+  public elements: RectorElements;
   private events = {};
   private State: { [scope: string]: { [state: string]: any } } = {};
   private stateUsageMap: StateUsage = {};
@@ -39,8 +40,8 @@ class RectorJS {
   private refs: { [key: string]: any } = {};
   private exprPrevValue: { [scope: string]: { [expr: string]: boolean } } = {};
   private cmpId = 0;
-  private activeScope: string = GLOBAL;
-  private renderDepth = 0;
+
+  private scopeStack = [GLOBAL];
   private appStarted = false;
   private routes: { [route: string]: () => HTMLElement } = {};
   private routeAccess: {
@@ -50,14 +51,31 @@ class RectorJS {
   };
 
   constructor() {
-    this.elements = new Proxy({} as RectorElement, {
-      get: (_, tag: string) => {
-        return (
-          attributes: Attrs | HTMLElement
-        ): HTMLElement | ((...children) => HTMLElement) =>
+    this.elements = new Proxy({} as RectorElements, {
+      get: (_, tag: keyof HTMLElementTagNameMap) => {
+        return (attributes: Attrs<typeof tag>): HTMLElement =>
           this.createElement(tag, attributes);
       },
     });
+  }
+
+  private activeScope() {
+    const L = this.scopeStack.length;
+    return this.scopeStack[L - 1];
+  }
+
+  public jsx(fn, props) {
+    if (typeof fn === "function") {
+      const componentName = isComponentFunction(fn);
+      if (!componentName) {
+        return fn(props);
+      }
+      this.component();
+      const app = fn(props);
+      this.popScope();
+      return app;
+    }
+    return null;
   }
 
   // -----Public methods----- //
@@ -69,6 +87,10 @@ class RectorJS {
     });
 
     Object.entries(routes).forEach(([path, routeComp]) => {
+      if (!path.startsWith("/")) {
+        throw new RectorError("Route path must start with '/'");
+      }
+
       if (typeof routeComp === "function") {
         this.routes[path] = routeComp;
       } else {
@@ -91,7 +113,7 @@ class RectorJS {
 
   public Layout(
     childRoutes: { [path: string]: any },
-    layoutComponent: (currentRoute: () => HTMLElement) => HTMLElement
+    layoutComponent: (RouteComponent: () => HTMLElement) => HTMLElement
   ) {
     let routes = {};
     const buildLayout = (cr) => {
@@ -122,6 +144,10 @@ class RectorJS {
   }
 
   private stateUsage(scope: string) {
+    if (!this.State[scope]) {
+      this.State[scope] = {};
+    }
+
     return new Proxy(this.State[scope] ?? {}, {
       get: (_, stateName: string) => {
         if (stateName.startsWith("$")) {
@@ -138,15 +164,20 @@ class RectorJS {
     });
   }
 
+  public globalState = this.stateUsage(GLOBAL);
+
+  public componentState() {
+    return this.stateUsage(this.activeScope());
+  }
+
+  public popScope() {
+    this.scopeStack.pop();
+  }
+
   public component() {
     if (this.appStarted) {
       const cmpId = `cmp-${this.cmpId++}`;
-      this.activeScope = cmpId;
-      this.renderDepth = 0;
-      return {
-        state: this.stateUsage(cmpId),
-        globalState: this.stateUsage(GLOBAL),
-      };
+      this.scopeStack.push(cmpId);
     } else {
       throw new RectorError(
         "You can only call 'Rector.component()' inside functions"
@@ -155,6 +186,9 @@ class RectorJS {
   }
 
   private async checkRouteAccess(path: string) {
+    if (!this.routeAccess) {
+      return true;
+    }
     const isPathProtected = this.routeAccess.protectedRoutes.has(path);
     if (isPathProtected) {
       const hasAccess = this.routeAccess.grantAccess();
@@ -164,13 +198,22 @@ class RectorJS {
   }
 
   public async renderRoot() {
+    const body = document.querySelector("body");
     const initPath = window.location.pathname;
-
     const app = this.routes[initPath];
     if (!app) {
-      throw new RectorError(
-        `INVALID ROUTE: '${initPath}' route  is not initialized.`
-      );
+      const fallbackRoute = this.routes["/*"];
+      if (fallbackRoute) {
+        body.innerHTML = "";
+        this.appStarted = true;
+        body.append(fallbackRoute());
+        this.appStarted = false;
+        return;
+      } else {
+        throw new RectorError(
+          `INVALID ROUTE: '${initPath}' route is not initialized.\nProvide fallback route '/*' to handle any undeclared route.`
+        );
+      }
     }
 
     const isRouteAccessible = await this.checkRouteAccess(initPath);
@@ -179,8 +222,6 @@ class RectorJS {
       this.routeAccess.onFallback();
       return;
     }
-
-    const body = document.querySelector("body");
 
     body.innerHTML = ""; // Clear existing content
     this.appStarted = true;
@@ -209,13 +250,13 @@ class RectorJS {
   }
 
   public initState<V>(stateName: string, value: V) {
-    if (this.activeScope == GLOBAL) {
+    if (this.activeScope() == GLOBAL) {
       throw new RectorError(
         "You must call 'Rector.component()' before initializing state in a component."
       );
     }
 
-    return this.configureState(stateName, value, this.activeScope);
+    return this.configureState(stateName, value, this.activeScope());
   }
 
   public configureState<V>(stateName: string, value: V, scope: string) {
@@ -305,7 +346,7 @@ class RectorJS {
 
     if (depends && depends.length > 0) {
       depends.forEach((stateName) => {
-        this.checkStateExist(stateName, this.activeScope);
+        this.checkStateExist(stateName, this.activeScope());
         if (this.effects.has(stateName)) {
           this.effects.set(stateName, [...this.effects.get(stateName), fn]);
         } else {
@@ -326,7 +367,7 @@ class RectorJS {
     onTrueRender: HTMLElement,
     onFalseRender?: HTMLElement
   ) {
-    const SCOPE = this.activeScope;
+    const SCOPE = this.activeScope();
     const stateKeys = this.extractStateKeys(expression);
     this.validateExpression(expression, stateKeys, SCOPE);
 
@@ -385,12 +426,18 @@ class RectorJS {
     }
   }
 
-  public map(
-    stateName: string,
-    render: (item: any, index: number) => HTMLElement,
-    keyExtractor?: (item: any, index: number) => string | number
-  ) {
-    const SCOPE = this.activeScope;
+  public map(config: {
+    stateName: string;
+    render: (item: any, index: number) => HTMLElement;
+    keyExtractor?: (item: any, index: number) => string | number;
+  }) {
+    const { stateName: sn, render, keyExtractor } = config;
+    let stateName = sn;
+    const SCOPE = this.activeScope();
+    if (!this.State[SCOPE]) {
+      this.State[SCOPE] = {};
+    }
+    console.log("stateName: ", stateName, SCOPE, this.State);
     this.checkStateExist(stateName, SCOPE);
 
     let items: any[];
@@ -722,28 +769,17 @@ class RectorJS {
     return [...new Set(identifiers)];
   }
 
-  private createElement(tag: string, attributes: Attrs | HTMLElement) {
-    this.renderDepth++;
+  private createElement<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    attributes: Attrs<K>
+  ): HTMLElementTagNameMap[K] {
     const elem = document.createElement(tag);
+    const children = attributes.children;
 
-    let finalEl: HTMLElement;
-
-    let prChildren = [];
-
-    if (Array.isArray(attributes)) {
-      throw new RectorError("Array is not allowed as attribute.");
-    }
-
-    if (typeof attributes === "number" || typeof attributes === "string") {
-      prChildren.push(attributes);
-    } else if (
-      attributes instanceof HTMLElement ||
-      attributes instanceof Text
-    ) {
-      prChildren.push(attributes);
-    } else if (typeof attributes === "object") {
-      Object.entries(attributes).forEach(([key, val]) => {
-        if (key.startsWith("on")) {
+    Object.entries(attributes).forEach(([key, value]) => {
+      let val = value as any;
+      if (key !== "children") {
+        if (key.startsWith("on") && typeof val === "function") {
           elem.addEventListener(key.slice(2), val);
         } else {
           if (key === "checked") {
@@ -751,40 +787,32 @@ class RectorJS {
             elem.checked = value;
           } else if (key.trim() === "ref") {
             this.refs[val] = elem;
+          } else if (key === "className") {
+            elem.setAttribute("class", val);
           } else {
             elem.setAttribute(key, val);
           }
         }
-      });
-    }
-
-    const finish = (el: HTMLElement) => {
-      this.renderDepth--;
-
-      if (this.renderDepth === 0) {
-        this.activeScope = GLOBAL;
       }
+    });
 
-      return el;
-    };
-
-    if (selfClosingTags.has(tag)) {
-      return finish(elem);
+    if (!children || selfClosingTags.has(tag)) {
+      return elem;
     }
 
-    if (prChildren.length > 0) {
-      finalEl = this.parseChildren(elem, prChildren);
-      return finish(finalEl);
-    }
+    const finalEl = this.parseChildren(
+      elem,
+      Array.isArray(children) ? children : [children]
+    );
 
-    return (...children: HTMLElement[]) => {
-      const finalEl = this.parseChildren(elem, children);
-      return finish(finalEl);
-    };
+    return finalEl;
   }
 
-  private parseChildren(elem: HTMLElement, children: HTMLElement[]) {
-    const SCOPE = this.activeScope;
+  private parseChildren<K extends keyof HTMLElementTagNameMap>(
+    elem: HTMLElementTagNameMap[K],
+    children: HTMLElement[]
+  ) {
+    const SCOPE = this.activeScope();
     for (let [idx, child] of children.entries()) {
       if (
         typeof child === "function" ||
@@ -904,34 +932,11 @@ export const Rector = new RectorJS();
 export const initState: typeof Rector.initState = Rector.initState.bind(Rector);
 export const initGlobalState: typeof Rector.initGlobalState =
   Rector.initGlobalState.bind(Rector);
+export const globalState = Rector.globalState;
 export const setEffect: typeof Rector.setEffect = Rector.setEffect.bind(Rector);
-
-// ----- RULES ----- //
-
-/*
-  RL1 : strings starting with '.' , '#' and strings containing '=' are considered as attributes.
-  for writing that strings explicitly write it in []
-
-  <<<<<   NOTE: ARGUMENTS/ATTRIBUTES CAN BE PASSED IN ANY ORDER  >>>>>
-
-  Ex.
-
-  E.div('.main','id=container',"Hello")  -> <div class="main" id="container"> Hello </div>
-  E.div('id=container',['.main','Hello']) -> <div id="container"> .main Hello </div>  
-
-
-  RL2:  IF you don't pass an Array as argument or a normal(without . # =) text/number as argument than instead of returning 
-        element it will return a callback function which is  taking arguments as children and returning Element. 
-
-   Ex.
-
-   E.h1('.title')('hey', 2, E.h2("Hello"), '#op", "you = me?") -> <h1 class="title"> hey 2 <h2> Hello </h2> #op you = me? </h1>
-
-   This is currying structure E.<element>(attributes)(children)
-   It is fix , in first fucntion call you can only pass attributes . # = or {}
-   In second whatever you pass will become children.
-   if you pass normal string in attributes or use a array argument [] then it will return Elment instead of funtion , 
-   so doing E.div(['hey'])('hii') will give error:
-     Expectation : <div> hey hii </div>
-     Reality : HTMLElement is not a function :)
-*/
+export const Layout: typeof Rector.Layout = Rector.Layout.bind(Rector);
+export const Routes: typeof Rector.Routes = Rector.Routes.bind(Rector);
+export const ProtectedRoutes: typeof Rector.ProtectedRoutes =
+  Rector.ProtectedRoutes.bind(Rector);
+export const Elements = Rector.elements;
+export const RectorMap: typeof Rector.map = Rector.map.bind(Rector);

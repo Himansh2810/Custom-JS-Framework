@@ -1,10 +1,14 @@
-import { Rector, initGlobalState, initState } from "../../rector-js/rector";
+import {
+  Rector,
+  initGlobalState,
+  initState,
+  globalState,
+  Elements as E,
+} from "../../rector-js";
 import { isAlreadyLogin } from "../utils";
 
-const E = Rector.elements;
-
 const LoginUtils = () => {
-  const { state, globalState } = Rector.component();
+  const state = Rector.componentState();
   const setLoginData = initState("loginData", {
     username: "",
     password: "",
@@ -42,37 +46,36 @@ function Login() {
 
   const { handleLogin, setLoginData } = LoginUtils();
 
-  return E.div({ class: "bg-gray-100 p-4 flex flex-col" })(
-    E.h1("Welcome to Login"),
-    E.input({
-      class: "p-2 border border-gray-400 m-1",
-      name: "Username",
-      placeholder: "Username",
-      oninput: (e) =>
-        setLoginData((prev) => ({ ...prev, username: e.target.value })),
-    }),
-    E.input({
-      class: "border border-gray-400 p-2 m-1",
-      type: "password",
-      placeholder: "Password",
-      oninput: (e) =>
-        setLoginData((prev) => ({ ...prev, password: e.target.value })),
-    }),
-    E.button({
-      class: "bg-indigo-500 p-2 rounded-md",
-      onclick: handleLogin,
-    })("Login"),
-    E.button({
-      class: "text-indigo-500",
-      onclick: () => Rector.navigate("/signup"),
-    })("Don't have account ? CREATE"),
-
-    E.button({
-      class: "text-indigo-500",
-      onclick: () => Rector.navigate("/login/demo"),
-    })("Demo"),
-
-    E.p({ class: "text-rose-500" })("{{errorMes}}")
+  return (
+    <E.div className="bg-gray-100 p-4 flex flex-col">
+      <E.h1>Welcome to Login</E.h1>
+      <E.input
+        className="p-2 border border-gray-400 m-1"
+        type="text"
+        placeholder="Username"
+        oninput={(e) =>
+          setLoginData((prev) => ({ ...prev, username: e.target.value }))
+        }
+      />
+      <E.input
+        className="p-2 border border-gray-400 m-1"
+        type="password"
+        placeholder="Password"
+        oninput={(e) =>
+          setLoginData((prev) => ({ ...prev, password: e.target.value }))
+        }
+      />
+      <E.button className="bg-indigo-500 p-2 rounded-md" onclick={handleLogin}>
+        Login
+      </E.button>
+      <E.button
+        className="text-indigo-500 underline"
+        onclick={() => Rector.navigate("/signup")}
+      >
+        Don't have account ? Create
+      </E.button>
+      <E.p className="text-rose-500">{"{{ errorMes }}"}</E.p>
+    </E.div>
   );
 }
 
@@ -87,47 +90,58 @@ function SignUp() {
     Rector.navigate("/");
     return;
   }
-  const { state } = Rector.component();
   const setUSerData = initState("data", {
     name: "",
     username: "",
     password: "",
   });
 
-  return E.div({ class: "bg-gray-100 p-4 flex flex-col" })(
-    E.h1("Welcome to Signup"),
-    E.input({
-      class: "p-2 border border-gray-400 m-1",
-      name: "Name",
-      placeholder: "Name",
-      oninput: (e) =>
-        setUSerData((prev) => ({ ...prev, name: e.target.value })),
-    }),
-    E.input({
-      class: "p-2 border border-gray-400 m-1",
-      name: "Username",
-      placeholder: "Username",
-      oninput: (e) =>
-        setUSerData((prev) => ({ ...prev, username: e.target.value })),
-    }),
-    E.input({
-      class: "p-2 border border-gray-400 m-1",
-      type: "password",
-      placeholder: "Password",
-      oninput: (e) =>
-        setUSerData((prev) => ({ ...prev, password: e.target.value })),
-    }),
-    E.button({
-      class: "bg-indigo-500 p-2 rounded-md",
-      onclick: () => {
-        setGlobUSer(state.data);
-        Rector.navigate("/login");
-      },
-    })("SignUp"),
-    E.button({
-      class: "text-indigo-500",
-      onclick: () => Rector.navigate("/login"),
-    })("Already have an account ? LOGIN")
+  return (
+    <E.div className="bg-gray-100 p-4 flex flex-col">
+      <E.h1>Welcome to Signup</E.h1>
+      <E.input
+        className="p-2 border border-gray-400 m-1"
+        type="text"
+        placeholder="Name"
+        name="name"
+        oninput={(e) =>
+          setUSerData((prev) => ({ ...prev, name: e.target.value }))
+        }
+      />
+      <E.input
+        className="p-2 border border-gray-400 m-1"
+        type="text"
+        placeholder="Username"
+        name="username"
+        oninput={(e) =>
+          setUSerData((prev) => ({ ...prev, username: e.target.value }))
+        }
+      />
+      <E.input
+        className="p-2 border border-gray-400 m-1"
+        type="password"
+        placeholder="Password"
+        name="password"
+        oninput={(e) =>
+          setUSerData((prev) => ({ ...prev, password: e.target.value }))
+        }
+      />
+      <E.button
+        className="bg-indigo-500 p-2 rounded-md"
+        onclick={() => {
+          setGlobUSer(state.data);
+          Rector.navigate("/login");
+        }}
+      >
+        SignUp
+      </E.button>
+      <E.button
+        className="text-indigo-500"
+        onclick={() => Rector.navigate("/login")}
+      >
+        Already have an account ? LOGIN
+      </E.button>
+    </E.div>
   );
 }
 

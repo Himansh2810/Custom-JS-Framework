@@ -1,10 +1,4 @@
-import {
-  initGlobalState,
-  initState,
-  Rector,
-  setEffect,
-} from "../../rector-js/rector.js";
-// import { handleRemoveItem, handleToggle, handleKeyPress } from "./app-data.js";
+import { initState, Rector, setEffect } from "../../rector-js";
 
 const E = Rector.elements;
 
