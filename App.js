@@ -41,4 +41,4 @@ ProtectedRoutes({
   onFallback: () => Rector.navigate("/login"),
 });
 
-Rector.renderRoot();
+Rector.renderApp();

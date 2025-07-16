@@ -9,9 +9,24 @@ import {
   ProtectedRoutes,
   Elements,
   RectorMap,
+  Condition,
+  getComponentState,
+  navigate,
+  renderApp,
+  useElementRef,
 } from "./core/rector.js";
 
 const route = (Comp) => () => <Comp />;
+
+// class RJS {
+//   constructor(){
+//     this.navigate = Rector.navigate;
+//   }
+// }
+
+// const rjs = new RJS();
+
+// rjs.navigate();
 
 export {
   Rector,
@@ -25,4 +40,9 @@ export {
   ProtectedRoutes,
   Elements,
   RectorMap,
+  Condition,
+  getComponentState,
+  navigate,
+  renderApp,
+  useElementRef,
 };

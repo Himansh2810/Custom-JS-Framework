@@ -44,3 +44,9 @@
 IS_1:Global State get populated everytime visit that component.
 IS_2:Navogation shoud be done by full cotroll , .navigate, manually write url , using broweser back & next page button.
 IS_3:Make Layout Works better.
+
+  prev                      new
+ {{ }}                     (())
+
+/({{\s*[^}]+\s*}})/         /(\(\(\s*[^)]+\s*\)\))/
+/{{\s*([^}]+)\s*}}/g        /\(\(\s*([^)]+)\s*\)\)/g

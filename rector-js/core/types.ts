@@ -3,6 +3,8 @@ type Attrs<T extends keyof HTMLElementTagNameMap> = Partial<
 > & {
   /** CSS classes to apply to the element */
   class?: string;
+  /** Unique reference name of the element. You can select this element later by using useElementRef. */
+  ref?: string;
   children?: HTMLElement | HTMLElement[];
 };
 
@@ -43,7 +45,25 @@ type StateBlocks = {
   };
 };
 
-export { Attrs, RectorElements, StateBlocks, StateBlockConfig, StateUsage };
+type RectorElementRef<T extends keyof HTMLElementTagNameMap> = {
+  [refName: string]: HTMLElementTagNameMap[T];
+};
+
+// type RectorRefs = {
+//   [K in keyof HTMLElementTagNameMap]: {
+//     [refName: string]: HTMLElementTagNameMap[K];
+//   };
+// };
+
+export {
+  Attrs,
+  RectorElements,
+  StateBlocks,
+  StateBlockConfig,
+  StateUsage,
+  RectorElementRef,
+  // RectorRefs,
+};
 
 // in future
 

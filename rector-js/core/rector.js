@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-import { estimateObjectSize, isComponentFunction, isEqual, reservedJSKeys, selfClosingTags, } from "./utils.js";
+import { estimateObjectSize, isComponentFunction, isEqual, isPlainObject, reservedJSKeys, selfClosingTags, } from "./utils.js";
 const GLOBAL = "global";
 class RectorError extends Error {
     constructor(message) {
@@ -23,7 +23,9 @@ class RectorError extends Error {
     }
 }
 class RectorJS {
+    // constructor setup //
     constructor() {
+        // Private Properties //
         this.events = {};
         this.State = {};
         this.stateUsageMap = {};
@@ -35,31 +37,35 @@ class RectorJS {
         this.scopeStack = [GLOBAL];
         this.appStarted = false;
         this.routes = {};
+        this.rectorKeywords = new Set(["bound condition", "bound map"]);
         this.globalState = this.stateUsage(GLOBAL);
+        this.effectQueue = new Map();
         this.elements = new Proxy({}, {
             get: (_, tag) => {
                 return (attributes) => this.createElement(tag, attributes);
             },
         });
     }
-    activeScope() {
-        const L = this.scopeStack.length;
-        return this.scopeStack[L - 1];
-    }
+    // -----Public methods----- //
     jsx(fn, props) {
         if (typeof fn === "function") {
             const componentName = isComponentFunction(fn);
-            if (!componentName) {
+            if (!componentName || this.rectorKeywords.has(componentName)) {
                 return fn(props);
             }
             this.component();
             const app = fn(props);
-            this.popScope();
+            this.scopeStack.pop();
             return app;
+        }
+        if (typeof fn === "string") {
+            if (fn === "state") {
+                return `{{${props.expr}}}`;
+            }
+            return "";
         }
         return null;
     }
-    // -----Public methods----- //
     Routes(routes) {
         window.addEventListener("popstate", () => {
             const pathName = window.location.pathname;
@@ -100,63 +106,15 @@ class RectorJS {
         buildLayout(childRoutes);
         return routes;
     }
-    routeCleanUp() {
-        var _a, _b, _c, _d;
-        this.State = { [GLOBAL]: (_a = this.State[GLOBAL]) !== null && _a !== void 0 ? _a : {} };
-        this.stateBlocks = { [GLOBAL]: (_b = this.stateBlocks[GLOBAL]) !== null && _b !== void 0 ? _b : {} };
-        this.stateUsageMap = { [GLOBAL]: (_c = this.stateUsageMap[GLOBAL]) !== null && _c !== void 0 ? _c : {} };
-        this.exprPrevValue = { [GLOBAL]: (_d = this.exprPrevValue[GLOBAL]) !== null && _d !== void 0 ? _d : {} };
-    }
     navigate(path) {
         history.pushState({}, "", path);
         this.routeCleanUp();
-        this.renderRoot();
+        this.renderApp();
     }
-    stateUsage(scope) {
-        var _a;
-        if (!this.State[scope]) {
-            this.State[scope] = {};
-        }
-        return new Proxy((_a = this.State[scope]) !== null && _a !== void 0 ? _a : {}, {
-            get: (_, stateName) => {
-                var _a;
-                if (stateName.startsWith("$")) {
-                    throw new RectorError(`State name started with '$' is not allowed in RectorJS.`);
-                }
-                this.checkStateExist(`${scope === GLOBAL ? "$" : ""}` + stateName, scope);
-                return (_a = this.State[scope]) === null || _a === void 0 ? void 0 : _a[stateName];
-            },
-        });
-    }
-    componentState() {
+    getComponentState() {
         return this.stateUsage(this.activeScope());
     }
-    popScope() {
-        this.scopeStack.pop();
-    }
-    component() {
-        if (this.appStarted) {
-            const cmpId = `cmp-${this.cmpId++}`;
-            this.scopeStack.push(cmpId);
-        }
-        else {
-            throw new RectorError("You can only call 'Rector.component()' inside functions");
-        }
-    }
-    checkRouteAccess(path) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!this.routeAccess) {
-                return true;
-            }
-            const isPathProtected = this.routeAccess.protectedRoutes.has(path);
-            if (isPathProtected) {
-                const hasAccess = this.routeAccess.grantAccess();
-                return hasAccess;
-            }
-            return true;
-        });
-    }
-    renderRoot() {
+    renderApp() {
         return __awaiter(this, void 0, void 0, function* () {
             const body = document.querySelector("body");
             const initPath = window.location.pathname;
@@ -181,24 +139,12 @@ class RectorJS {
             }
             body.innerHTML = ""; // Clear existing content
             this.appStarted = true;
-            false && console.time("App_loaded_in");
+            console.time("App_loaded_in");
             body.append(app());
-            false && console.timeEnd("App_loaded_in");
+            console.timeEnd("App_loaded_in");
+            this.runEffects();
             this.appStarted = false;
         });
-    }
-    registerEvents(events) {
-        Object.entries(events).forEach(([key, val]) => {
-            if (this.events[key]) {
-                throw new RectorError(`Event named '${key}' already registered`);
-            }
-            else {
-                this.events[key] = val;
-            }
-        });
-    }
-    getEvent(eventName) {
-        return this.events[eventName];
     }
     initGlobalState(stateName, value) {
         return this.configureState(stateName, value, GLOBAL);
@@ -209,71 +155,33 @@ class RectorJS {
         }
         return this.configureState(stateName, value, this.activeScope());
     }
-    configureState(stateName, value, scope) {
-        if (typeof stateName !== "string") {
-            throw new RectorError("State name must be of string type");
-        }
-        stateName = stateName.trim();
-        if (!stateName) {
-            throw new RectorError("State name should be a valid string");
-        }
-        if (stateName.startsWith("$")) {
-            throw new RectorError(`Invalid state name '${stateName}': State name should not start with a '$' in RectorJS`);
-        }
-        if (!/^[A-Z_a-z][$\w]*$/.test(stateName)) {
-            throw new RectorError(`Invalid state name '${stateName}': State names must start with a letter , _  and only contain alphanumeric characters, $, or _.`);
-        }
-        if (reservedJSKeys.has(stateName)) {
-            throw new RectorError(`Invalid state name '${stateName}': JavaScript keywords are not allowed as State name.`);
-        }
-        const isCmp = scope !== GLOBAL;
-        if (!this.State[scope]) {
-            this.State[scope] = {};
-        }
-        // @ts-ignore
-        if (Object.hasOwn(this.State[scope], stateName)) {
-            throw new RectorError(`${!isCmp ? "Global" : ""} State '${stateName}' is already declared in this ${!isCmp ? "App" : "Component"}.`);
-        }
-        this.State[scope][stateName] = value;
-        return (val) => {
-            const oldValue = this.State[scope][stateName];
-            const newVal = typeof val === "function" ? val(oldValue) : val;
-            this.State[scope][stateName] = newVal;
-            if (!isEqual(oldValue, newVal)) {
-                this.reRender(stateName, oldValue, scope);
-                this.runEffects(stateName);
-            }
-        };
-    }
-    setEffect(fn, config) {
+    setEffect(fn, depends) {
+        const SCOPE = this.activeScope();
         if (typeof fn !== "function") {
             throw new RectorError("Effect must be a function");
         }
-        const { depends = [], runAfterRender = false, runOnInit = true } = config;
-        if (runOnInit) {
-            fn();
-        }
-        if (!Array.isArray(depends) || depends.some((d) => typeof d !== "string")) {
-            throw new RectorError("Dependencies must be an array of strings");
-        }
         if (depends && depends.length > 0) {
             depends.forEach((stateName) => {
+                var _a, _b;
+                if (typeof stateName !== "string") {
+                    throw new RectorError("[setEffect] Dependencies must be an array of strings");
+                }
                 this.checkStateExist(stateName, this.activeScope());
-                if (this.effects.has(stateName)) {
-                    this.effects.set(stateName, [...this.effects.get(stateName), fn]);
-                }
-                else {
-                    this.effects.set(stateName, [fn]);
-                }
+                const prevStateEffects = (_a = this.effects.get(SCOPE)) !== null && _a !== void 0 ? _a : {};
+                this.effects.set(SCOPE, Object.assign(Object.assign({}, prevStateEffects), { [stateName]: [...((_b = prevStateEffects === null || prevStateEffects === void 0 ? void 0 : prevStateEffects[stateName]) !== null && _b !== void 0 ? _b : []), fn] }));
             });
         }
-        if (runAfterRender) {
-            document.addEventListener("DOMContentLoaded", () => {
-                fn();
-            });
+        if (this.effectQueue.has(SCOPE)) {
+            const cmpQueue = this.effectQueue.get(SCOPE);
+            cmpQueue.push(fn);
+            this.effectQueue.set(SCOPE, cmpQueue);
+        }
+        else {
+            this.effectQueue.set(SCOPE, [fn]);
         }
     }
-    if(expression, onTrueRender, onFalseRender) {
+    condition(config) {
+        const { expression, onTrueRender, onFalseRender } = config;
         const SCOPE = this.activeScope();
         const stateKeys = this.extractStateKeys(expression);
         this.validateExpression(expression, stateKeys, SCOPE);
@@ -311,6 +219,10 @@ class RectorJS {
                     falseElement: onFalseEl,
                     scope: SCOPE,
                 });
+            }
+            console.log("onTrueEl: ", onTrueEl);
+            if (typeof onTrueEl === "string") {
+                console.log("onTrueEl: ", onTrueEl);
             }
             return isTrue ? onTrueEl : onFalseEl;
         }
@@ -368,12 +280,115 @@ class RectorJS {
         });
         return fragment;
     }
-    useRef(refName) {
-        return {
-            current: () => this.refs[refName],
+    useElementRef(elementTagName) {
+        const SCOPE = this.activeScope();
+        return new Proxy({}, {
+            get: (_, refName) => {
+                var _a;
+                const refKey = `${elementTagName}:${refName}`;
+                // @ts-ignore
+                if (!Object.hasOwn((_a = this.refs[SCOPE]) !== null && _a !== void 0 ? _a : {}, refKey)) {
+                    throw new RectorError(`Ref '${refName}' doesn't exist on any '${elementTagName}' element.`);
+                }
+                return this.refs[SCOPE][refKey];
+            },
+        });
+    }
+    // public elementRefs = new Proxy({} as RectorRefs, {
+    //   get(_, tag: keyof HTMLElementTagNameMap) {
+    //     return new Proxy({} as RectorRefs[typeof tag], {
+    //       get(_, refName: string) {
+    //         return this.refs[refName];
+    //       },
+    //     });
+    //   },
+    // });
+    // ------Private methods ---- //
+    activeScope() {
+        const L = this.scopeStack.length;
+        return this.scopeStack[L - 1];
+    }
+    routeCleanUp() {
+        var _a, _b, _c, _d;
+        this.State = { [GLOBAL]: (_a = this.State[GLOBAL]) !== null && _a !== void 0 ? _a : {} };
+        this.stateBlocks = { [GLOBAL]: (_b = this.stateBlocks[GLOBAL]) !== null && _b !== void 0 ? _b : {} };
+        this.stateUsageMap = { [GLOBAL]: (_c = this.stateUsageMap[GLOBAL]) !== null && _c !== void 0 ? _c : {} };
+        this.exprPrevValue = { [GLOBAL]: (_d = this.exprPrevValue[GLOBAL]) !== null && _d !== void 0 ? _d : {} };
+    }
+    stateUsage(scope) {
+        var _a;
+        if (!this.State[scope]) {
+            this.State[scope] = {};
+        }
+        return new Proxy((_a = this.State[scope]) !== null && _a !== void 0 ? _a : {}, {
+            get: (_, stateName) => {
+                var _a;
+                if (stateName.startsWith("$")) {
+                    throw new RectorError(`State name started with '$' is not allowed in RectorJS.`);
+                }
+                this.checkStateExist(`${scope === GLOBAL ? "$" : ""}` + stateName, scope);
+                return (_a = this.State[scope]) === null || _a === void 0 ? void 0 : _a[stateName];
+            },
+        });
+    }
+    configureState(stateName, value, scope) {
+        if (typeof stateName !== "string") {
+            throw new RectorError("State name must be of string type");
+        }
+        stateName = stateName.trim();
+        if (!stateName) {
+            throw new RectorError("State name should be a valid string");
+        }
+        if (stateName.startsWith("$")) {
+            throw new RectorError(`Invalid state name '${stateName}': State name should not start with a '$' in RectorJS`);
+        }
+        if (!/^[A-Z_a-z][$\w]*$/.test(stateName)) {
+            throw new RectorError(`Invalid state name '${stateName}': State names must start with a letter , _  and only contain alphanumeric characters, $, or _.`);
+        }
+        if (reservedJSKeys.has(stateName)) {
+            throw new RectorError(`Invalid state name '${stateName}': JavaScript keywords are not allowed as State name.`);
+        }
+        const isCmp = scope !== GLOBAL;
+        if (!this.State[scope]) {
+            this.State[scope] = {};
+        }
+        // @ts-ignore
+        if (Object.hasOwn(this.State[scope], stateName)) {
+            throw new RectorError(`${!isCmp ? "Global" : ""} State '${stateName}' is already declared in this ${!isCmp ? "App" : "Component"}.`);
+        }
+        this.State[scope][stateName] = value;
+        return (val) => {
+            const oldValue = this.State[scope][stateName];
+            const newVal = typeof val === "function" ? val(oldValue) : val;
+            this.State[scope][stateName] = newVal;
+            if (!isEqual(oldValue, newVal)) {
+                this.reRender(stateName, oldValue, scope);
+                this.runEffects(stateName, scope);
+            }
         };
     }
-    // ------Private methods ---- //
+    component() {
+        if (this.appStarted) {
+            const cmpId = `cmp-${this.cmpId++}`;
+            this.scopeStack.push(cmpId);
+        }
+        else {
+            throw new RectorError("You can only call 'Rector.component()' inside functions");
+        }
+    }
+    checkRouteAccess(path) {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.routeAccess) {
+                return true;
+            }
+            const isPathProtected = this.routeAccess.protectedRoutes.has(path);
+            if (isPathProtected) {
+                const hasAccess = this.routeAccess.grantAccess();
+                return hasAccess;
+            }
+            return true;
+        });
+    }
     validateConditionalElements(element, elType) {
         if (element instanceof DocumentFragment) {
             throw new RectorError(`at ${elType ? "onTrueRender" : "onFalseRender"}: 'map' loop block cannot be directly use in 'if' block, try to wrap it in any parent element.`);
@@ -383,11 +398,18 @@ class RectorJS {
         }
         return element ? element : document.createTextNode("");
     }
-    runEffects(stateName) {
-        const effects = this.effects.get(stateName);
-        if (effects && effects.length > 0) {
-            effects.forEach((fn) => {
-                fn();
+    runEffects(stateName, scope) {
+        var _a;
+        if (stateName && scope) {
+            const effects = (_a = this.effects.get(scope)) !== null && _a !== void 0 ? _a : {};
+            const stateEffects = effects[stateName];
+            if (stateEffects && stateEffects.length > 0) {
+                stateEffects.forEach((fn) => fn());
+            }
+        }
+        else {
+            this.effectQueue.forEach((effectArray) => {
+                effectArray.forEach((fn) => fn());
             });
         }
     }
@@ -513,15 +535,16 @@ class RectorJS {
         }
     }
     checkStateExist(stateName, scope) {
+        var _a, _b;
         if (stateName.startsWith("$")) {
             // @ts-ignore
-            if (!Object.hasOwn(this.State[GLOBAL], stateName.slice(1))) {
+            if (!Object.hasOwn((_a = this.State[GLOBAL]) !== null && _a !== void 0 ? _a : {}, stateName.slice(1))) {
                 throw new RectorError(`Global State '${stateName}' is not declared in the App.`);
             }
         }
         else {
             // @ts-ignore
-            if (!Object.hasOwn(this.State[scope], stateName)) {
+            if (!Object.hasOwn((_b = this.State[scope]) !== null && _b !== void 0 ? _b : {}, stateName)) {
                 throw new RectorError(`State '${stateName}' is not declared in this Component.`);
             }
         }
@@ -576,6 +599,7 @@ class RectorJS {
         return [...new Set(identifiers)];
     }
     createElement(tag, attributes) {
+        const SCOPE = this.activeScope();
         const elem = document.createElement(tag);
         const children = attributes.children;
         Object.entries(attributes).forEach(([key, value]) => {
@@ -590,7 +614,11 @@ class RectorJS {
                         elem.checked = value;
                     }
                     else if (key.trim() === "ref") {
-                        this.refs[val] = elem;
+                        const refKeyName = `${tag}:${val}`;
+                        if (!this.refs[SCOPE]) {
+                            this.refs[SCOPE] = {};
+                        }
+                        this.refs[SCOPE][refKeyName] = elem;
                     }
                     else if (key === "className") {
                         elem.setAttribute("class", val);
@@ -611,7 +639,7 @@ class RectorJS {
         const SCOPE = this.activeScope();
         for (let [idx, child] of children.entries()) {
             if (typeof child === "function" ||
-                this.isPlainObject(child) ||
+                isPlainObject(child) ||
                 Array.isArray(child)) {
                 throw new RectorError("Functions, Objects and Arrays are not allowed as children");
             }
@@ -654,27 +682,25 @@ class RectorJS {
         }
         return elem;
     }
-    isValidKeyPair(str) {
-        const index = str.indexOf("=");
-        return (index > 0 && index < str.length - 1 && index === str.lastIndexOf("="));
-    }
     print(showValues) {
         if (showValues) {
             console.log("States: ", this.State, "\nState Blocks: ", this.stateBlocks, "\nState usage map: ", this.stateUsageMap, "\nExpressions: ", this.exprPrevValue);
         }
         console.log("States: ", estimateObjectSize(this.State), "\nState Blocks: ", estimateObjectSize(this.stateBlocks), "\nState usage map: ", estimateObjectSize(this.stateUsageMap), "\nOther: ", estimateObjectSize(this.exprPrevValue, this.effects, this.events, this.refs));
     }
-    isPlainObject(obj) {
-        return (typeof obj === "object" && obj !== null && obj.constructor === Object);
-    }
 }
 export const Rector = new RectorJS();
 export const initState = Rector.initState.bind(Rector);
 export const initGlobalState = Rector.initGlobalState.bind(Rector);
-export const globalState = Rector.globalState;
 export const setEffect = Rector.setEffect.bind(Rector);
 export const Layout = Rector.Layout.bind(Rector);
 export const Routes = Rector.Routes.bind(Rector);
 export const ProtectedRoutes = Rector.ProtectedRoutes.bind(Rector);
-export const Elements = Rector.elements;
 export const RectorMap = Rector.map.bind(Rector);
+export const Condition = Rector.condition.bind(Rector);
+export const getComponentState = Rector.getComponentState.bind(Rector);
+export const navigate = Rector.navigate.bind(Rector);
+export const useElementRef = Rector.useElementRef.bind(Rector);
+export const renderApp = Rector.renderApp.bind(Rector);
+export const globalState = Rector.globalState;
+export const Elements = Rector.elements;

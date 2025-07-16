@@ -144,4 +144,7 @@ function isComponentFunction(fn) {
     }
     return fn === null || fn === void 0 ? void 0 : fn.name;
 }
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, };
+function isPlainObject(obj) {
+    return typeof obj === "object" && obj !== null && obj.constructor === Object;
+}
+export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, };

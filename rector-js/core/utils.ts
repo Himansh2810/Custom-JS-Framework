@@ -158,10 +158,15 @@ function isComponentFunction(fn: Function): string | false {
   return fn?.name;
 }
 
+function isPlainObject(obj: any): boolean {
+  return typeof obj === "object" && obj !== null && obj.constructor === Object;
+}
+
 export {
   isEqual,
   reservedJSKeys,
   selfClosingTags,
   estimateObjectSize,
   isComponentFunction,
+  isPlainObject,
 };
