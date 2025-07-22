@@ -1,23 +1,35 @@
 import {
   Rector,
   Layout,
-  route,
   Routes,
   ProtectedRoutes,
   Elements as E,
+  Query,
 } from "./rector-js";
 import { Login, SignUp } from "./src/auth/login.js";
 import { Navbar, Footer } from "./src/components/Navbar.js";
 import { Products, Welcome } from "./src/pages/index.js";
 import ErrorPage from "./src/components/ErrorPage.js";
+import axios from "axios";
+
+Query.context = {
+  get: async (url) => {
+    const res = await axios.get(url);
+    return res.data;
+  },
+  post: async (url, data) => {
+    const res = await axios.post(url, data);
+    return res.data;
+  },
+};
 
 const ProductPageLayout = Layout(
   {
-    "/": route(Welcome),
-    "/products": route(Products),
+    "/": Welcome,
+    "/products": Products,
   },
   (CurrentRoute) => (
-    <E.div class="bg-gray-800 h-[100vh]">
+    <E.div class="bg-gray-800">
       <Navbar title="RectorJS" />
       <CurrentRoute />
       <Footer />
@@ -26,10 +38,10 @@ const ProductPageLayout = Layout(
 );
 
 Routes({
-  "/login": route(Login),
-  "/signup": route(SignUp),
+  "/login": Login,
+  "/signup": SignUp,
   "/": ProductPageLayout,
-  "/*": route(ErrorPage),
+  "/*": ErrorPage,
 });
 
 ProtectedRoutes({

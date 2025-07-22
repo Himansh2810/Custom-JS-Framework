@@ -35,11 +35,12 @@ class RectorJS {
         this.exprPrevValue = {};
         this.cmpId = 0;
         this.scopeStack = [GLOBAL];
-        this.appStarted = false;
+        this.isAppRendering = false;
         this.routes = {};
         this.rectorKeywords = new Set(["bound condition", "bound map"]);
         this.globalState = this.stateUsage(GLOBAL);
         this.effectQueue = new Map();
+        this.renderQueue = [];
         this.elements = new Proxy({}, {
             get: (_, tag) => {
                 return (attributes) => this.createElement(tag, attributes);
@@ -123,9 +124,9 @@ class RectorJS {
                 const fallbackRoute = this.routes["/*"];
                 if (fallbackRoute) {
                     body.innerHTML = "";
-                    this.appStarted = true;
+                    this.isAppRendering = true;
                     body.append(fallbackRoute());
-                    this.appStarted = false;
+                    this.isAppRendering = false;
                     return;
                 }
                 else {
@@ -138,12 +139,13 @@ class RectorJS {
                 return;
             }
             body.innerHTML = ""; // Clear existing content
-            this.appStarted = true;
+            this.isAppRendering = true;
             console.time("App_loaded_in");
-            body.append(app());
+            body.append(this.jsx(app, {}));
             console.timeEnd("App_loaded_in");
+            this.isAppRendering = false;
             this.runEffects();
-            this.appStarted = false;
+            this.executeRenderQueue();
         });
     }
     initGlobalState(stateName, value) {
@@ -220,10 +222,6 @@ class RectorJS {
                     scope: SCOPE,
                 });
             }
-            console.log("onTrueEl: ", onTrueEl);
-            if (typeof onTrueEl === "string") {
-                console.log("onTrueEl: ", onTrueEl);
-            }
             return isTrue ? onTrueEl : onFalseEl;
         }
         catch (error) {
@@ -242,7 +240,6 @@ class RectorJS {
         if (!this.State[SCOPE]) {
             this.State[SCOPE] = {};
         }
-        console.log("stateName: ", stateName, SCOPE, this.State);
         this.checkStateExist(stateName, SCOPE);
         let items;
         let crrScope = SCOPE;
@@ -368,13 +365,8 @@ class RectorJS {
         };
     }
     component() {
-        if (this.appStarted) {
-            const cmpId = `cmp-${this.cmpId++}`;
-            this.scopeStack.push(cmpId);
-        }
-        else {
-            throw new RectorError("You can only call 'Rector.component()' inside functions");
-        }
+        const cmpId = `cmp-${this.cmpId++}`;
+        this.scopeStack.push(cmpId);
     }
     checkRouteAccess(path) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -391,7 +383,7 @@ class RectorJS {
     }
     validateConditionalElements(element, elType) {
         if (element instanceof DocumentFragment) {
-            throw new RectorError(`at ${elType ? "onTrueRender" : "onFalseRender"}: 'map' loop block cannot be directly use in 'if' block, try to wrap it in any parent element.`);
+            throw new RectorError(`at ${elType ? "onTrueRender" : "onFalseRender"}: 'map' loop block cannot be directly use in 'condition' block, try to wrap it in any parent element.`);
         }
         if (typeof element === "string" || typeof element === "number") {
             return document.createTextNode(element.toString());
@@ -399,19 +391,22 @@ class RectorJS {
         return element ? element : document.createTextNode("");
     }
     runEffects(stateName, scope) {
-        var _a;
-        if (stateName && scope) {
-            const effects = (_a = this.effects.get(scope)) !== null && _a !== void 0 ? _a : {};
-            const stateEffects = effects[stateName];
-            if (stateEffects && stateEffects.length > 0) {
-                stateEffects.forEach((fn) => fn());
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            if (stateName && scope) {
+                const effects = (_a = this.effects.get(scope)) !== null && _a !== void 0 ? _a : {};
+                const stateEffects = effects[stateName];
+                if (stateEffects && stateEffects.length > 0) {
+                    stateEffects.forEach((fn) => fn());
+                }
             }
-        }
-        else {
-            this.effectQueue.forEach((effectArray) => {
-                effectArray.forEach((fn) => fn());
-            });
-        }
+            else {
+                this.effectQueue.forEach((effectArray) => {
+                    effectArray.forEach((fn) => fn());
+                });
+                this.effectQueue.clear();
+            }
+        });
     }
     updateIfBlock(utl) {
         let globalVars = {};
@@ -681,6 +676,17 @@ class RectorJS {
             }
         }
         return elem;
+    }
+    executeRenderQueue() {
+        this.renderQueue.forEach(({ data, callback }) => {
+            callback(data);
+        });
+    }
+    addToRenderQueue(data, callback) {
+        this.renderQueue.push({
+            data,
+            callback,
+        });
     }
     print(showValues) {
         if (showValues) {

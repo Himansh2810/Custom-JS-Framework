@@ -8,7 +8,7 @@ import {
 import { isAlreadyLogin } from "../utils";
 
 const LoginUtils = () => {
-  const state = Rector.componentState();
+  const state = Rector.getComponentState();
   const setLoginData = initState("loginData", {
     username: "",
     password: "",

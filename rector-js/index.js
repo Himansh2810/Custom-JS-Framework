@@ -16,25 +16,15 @@ import {
   useElementRef,
 } from "./core/rector.js";
 
-const route = (Comp) => () => <Comp />;
-
-// class RJS {
-//   constructor(){
-//     this.navigate = Rector.navigate;
-//   }
-// }
-
-// const rjs = new RJS();
-
-// rjs.navigate();
+import { Query } from "./apis/index.js";
 
 export {
+  Query,
   Rector,
   initGlobalState,
   initState,
   setEffect,
   globalState,
-  route,
   Layout,
   Routes,
   ProtectedRoutes,

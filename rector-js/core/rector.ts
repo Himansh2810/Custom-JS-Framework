@@ -43,7 +43,7 @@ class RectorJS {
   private exprPrevValue: { [scope: string]: { [expr: string]: boolean } } = {};
   private cmpId = 0;
   private scopeStack = [GLOBAL];
-  private appStarted = false;
+  private isAppRendering = false;
   private routes: { [route: string]: () => HTMLElement } = {};
   private routeAccess: {
     protectedRoutes: Set<string>;
@@ -163,9 +163,9 @@ class RectorJS {
       const fallbackRoute = this.routes["/*"];
       if (fallbackRoute) {
         body.innerHTML = "";
-        this.appStarted = true;
+        this.isAppRendering = true;
         body.append(fallbackRoute());
-        this.appStarted = false;
+        this.isAppRendering = false;
         return;
       } else {
         throw new RectorError(
@@ -182,12 +182,13 @@ class RectorJS {
     }
 
     body.innerHTML = ""; // Clear existing content
-    this.appStarted = true;
+    this.isAppRendering = true;
     console.time("App_loaded_in");
-    body.append(app());
+    body.append(this.jsx(app, {}));
     console.timeEnd("App_loaded_in");
+    this.isAppRendering = false;
     this.runEffects();
-    this.appStarted = false;
+    this.executeRenderQueue();
   }
 
   public initGlobalState<V>(stateName: string, value: V) {
@@ -292,11 +293,6 @@ class RectorJS {
           scope: SCOPE,
         });
       }
-      console.log("onTrueEl: ", onTrueEl);
-
-      if (typeof onTrueEl === "string") {
-        console.log("onTrueEl: ", onTrueEl);
-      }
 
       return isTrue ? onTrueEl : onFalseEl;
     } catch (error) {
@@ -321,7 +317,6 @@ class RectorJS {
     if (!this.State[SCOPE]) {
       this.State[SCOPE] = {};
     }
-    console.log("stateName: ", stateName, SCOPE, this.State);
     this.checkStateExist(stateName, SCOPE);
 
     let items: any[];
@@ -496,14 +491,8 @@ class RectorJS {
   }
 
   private component() {
-    if (this.appStarted) {
-      const cmpId = `cmp-${this.cmpId++}`;
-      this.scopeStack.push(cmpId);
-    } else {
-      throw new RectorError(
-        "You can only call 'Rector.component()' inside functions"
-      );
-    }
+    const cmpId = `cmp-${this.cmpId++}`;
+    this.scopeStack.push(cmpId);
   }
 
   private async checkRouteAccess(path: string) {
@@ -526,7 +515,7 @@ class RectorJS {
       throw new RectorError(
         `at ${
           elType ? "onTrueRender" : "onFalseRender"
-        }: 'map' loop block cannot be directly use in 'if' block, try to wrap it in any parent element.`
+        }: 'map' loop block cannot be directly use in 'condition' block, try to wrap it in any parent element.`
       );
     }
 
@@ -537,7 +526,7 @@ class RectorJS {
     return element ? element : document.createTextNode("");
   }
 
-  private runEffects(stateName?: string, scope?: string) {
+  private async runEffects(stateName?: string, scope?: string) {
     if (stateName && scope) {
       const effects = this.effects.get(scope) ?? {};
       const stateEffects = effects[stateName];
@@ -548,6 +537,8 @@ class RectorJS {
       this.effectQueue.forEach((effectArray) => {
         effectArray.forEach((fn) => fn());
       });
+
+      this.effectQueue.clear();
     }
   }
 
@@ -906,6 +897,21 @@ class RectorJS {
     }
 
     return elem;
+  }
+
+  private renderQueue: { data: any; callback: (data: any) => any }[] = [];
+
+  private executeRenderQueue() {
+    this.renderQueue.forEach(({ data, callback }) => {
+      callback(data);
+    });
+  }
+
+  public addToRenderQueue(data: any, callback: (data: any) => any) {
+    this.renderQueue.push({
+      data,
+      callback,
+    });
   }
 
   public print(showValues?: false) {
