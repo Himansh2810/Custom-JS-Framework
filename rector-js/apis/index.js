@@ -11,7 +11,6 @@ class RectorQuery {
     constructor() {
         this.cache = {};
         this.GETcacheDuration = 0;
-        this.queryMethods = {};
         this.context = {
             get: (url, queryConfig) => __awaiter(this, void 0, void 0, function* () { }),
             post: (url, data, queryConfig) => __awaiter(this, void 0, void 0, function* () { }),
@@ -19,15 +18,6 @@ class RectorQuery {
     }
     setCacheDurationForGET(duration) {
         this.GETcacheDuration = duration;
-    }
-    configureCache(url, duration) {
-        if (duration <= 0) {
-            return null;
-        }
-    }
-    isURLCached(url) {
-        // @ts-ignore
-        return !!Object.hasOwn(this.cache, url);
     }
     get(url, options) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -52,9 +42,9 @@ class RectorQuery {
             return res;
         });
     }
-    post(url, data, options) {
+    post(url, data, queryConfig) {
         return __awaiter(this, void 0, void 0, function* () {
-            const res = yield this.context.post(url, data, options === null || options === void 0 ? void 0 : options.queryConfig);
+            const res = yield this.context.post(url, data, queryConfig);
             return res;
         });
     }

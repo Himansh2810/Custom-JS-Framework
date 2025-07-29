@@ -29,7 +29,7 @@ const ProductPageLayout = Layout(
     "/products": Products,
   },
   (CurrentRoute) => (
-    <E.div class="bg-gray-800">
+    <E.div class="bg-gray-800 min-h-[100vh]">
       <Navbar title="RectorJS" />
       <CurrentRoute />
       <Footer />

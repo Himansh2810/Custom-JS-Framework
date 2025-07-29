@@ -147,4 +147,7 @@ function isComponentFunction(fn) {
 function isPlainObject(obj) {
     return typeof obj === "object" && obj !== null && obj.constructor === Object;
 }
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, };
+function isCamelCase(str) {
+    return str[0] === str[0].toUpperCase();
+}
+export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, };

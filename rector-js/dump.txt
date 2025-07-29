@@ -46,7 +46,10 @@ IS_2:Navogation shoud be done by full cotroll , .navigate, manually write url , 
 IS_3:Make Layout Works better.
 
   prev                      new
- {{ }}                     (())
+ {{ }}                     [[ ]]
 
-/({{\s*[^}]+\s*}})/         /(\(\(\s*[^)]+\s*\)\))/
-/{{\s*([^}]+)\s*}}/g        /\(\(\s*([^)]+)\s*\)\)/g
+/({{\s*[^}]+\s*}})/         /(\[\[\s*[^\]]+\s*\]\])/g
+
+
+/{{\s*([^}]+)\s*}}/g        /\[\[\s*([^\]]+)\s*\]\]/g
+

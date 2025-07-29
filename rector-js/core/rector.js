@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-import { estimateObjectSize, isComponentFunction, isEqual, isPlainObject, reservedJSKeys, selfClosingTags, } from "./utils.js";
+import { estimateObjectSize, isCamelCase, isComponentFunction, isEqual, isPlainObject, reservedJSKeys, selfClosingTags, } from "./utils.js";
 const GLOBAL = "global";
 class RectorError extends Error {
     constructor(message) {
@@ -22,14 +22,34 @@ class RectorError extends Error {
         }
     }
 }
+class BiMap {
+    constructor() {
+        this.fwd = {};
+        this.bwd = {};
+    }
+    set(key, value) {
+        this.fwd[key] = value;
+        this.bwd[value] = key;
+    }
+    clear() {
+        this.fwd = {};
+        this.bwd = {};
+    }
+    getByKey(key) {
+        return this.fwd[key];
+    }
+    getByVal(value) {
+        return this.bwd[value];
+    }
+}
 class RectorJS {
     // constructor setup //
     constructor() {
         // Private Properties //
-        this.events = {};
         this.State = {};
         this.stateUsageMap = {};
-        this.stateBlocks = {};
+        this.stateIfBlock = {};
+        this.stateLoopBlock = {};
         this.effects = new Map();
         this.refs = {};
         this.exprPrevValue = {};
@@ -38,9 +58,10 @@ class RectorJS {
         this.isAppRendering = false;
         this.routes = {};
         this.rectorKeywords = new Set(["bound condition", "bound map"]);
+        this.componentNameIdMap = new BiMap();
+        this.componentTree = {};
         this.globalState = this.stateUsage(GLOBAL);
         this.effectQueue = new Map();
-        this.renderQueue = [];
         this.elements = new Proxy({}, {
             get: (_, tag) => {
                 return (attributes) => this.createElement(tag, attributes);
@@ -54,14 +75,17 @@ class RectorJS {
             if (!componentName || this.rectorKeywords.has(componentName)) {
                 return fn(props);
             }
-            this.component();
+            const cmpId = `cmp-${this.cmpId++}`;
+            this.componentNameIdMap.set(cmpId, componentName);
+            this.componentTree[cmpId] = new Set([...this.scopeStack].slice(1));
+            this.scopeStack.push(cmpId);
             const app = fn(props);
             this.scopeStack.pop();
             return app;
         }
         if (typeof fn === "string") {
-            if (fn === "state") {
-                return `{{${props.expr}}}`;
+            if (fn === "state" && props.val) {
+                return `[[${props.val}]]`;
             }
             return "";
         }
@@ -145,7 +169,6 @@ class RectorJS {
             console.timeEnd("App_loaded_in");
             this.isAppRendering = false;
             this.runEffects();
-            this.executeRenderQueue();
         });
     }
     initGlobalState(stateName, value) {
@@ -153,7 +176,7 @@ class RectorJS {
     }
     initState(stateName, value) {
         if (this.activeScope() == GLOBAL) {
-            throw new RectorError("You must call 'Rector.component()' before initializing state in a component.");
+            throw new RectorError("You can't initial state outside of a component, try 'initGlobalState' instead.");
         }
         return this.configureState(stateName, value, this.activeScope());
     }
@@ -168,7 +191,7 @@ class RectorJS {
                 if (typeof stateName !== "string") {
                     throw new RectorError("[setEffect] Dependencies must be an array of strings");
                 }
-                this.checkStateExist(stateName, this.activeScope());
+                this.checkStateValid(stateName, SCOPE);
                 const prevStateEffects = (_a = this.effects.get(SCOPE)) !== null && _a !== void 0 ? _a : {};
                 this.effects.set(SCOPE, Object.assign(Object.assign({}, prevStateEffects), { [stateName]: [...((_b = prevStateEffects === null || prevStateEffects === void 0 ? void 0 : prevStateEffects[stateName]) !== null && _b !== void 0 ? _b : []), fn] }));
             });
@@ -185,37 +208,37 @@ class RectorJS {
     condition(config) {
         const { expression, onTrueRender, onFalseRender } = config;
         const SCOPE = this.activeScope();
-        const stateKeys = this.extractStateKeys(expression);
-        this.validateExpression(expression, stateKeys, SCOPE);
+        this.validateExpression(expression);
+        let { stateKeys, scopeState } = this.mapStateKeys(expression, SCOPE);
         let onTrueEl = this.validateConditionalElements(onTrueRender, true);
         let onFalseEl = this.validateConditionalElements(onFalseRender, false);
-        let globalState = {};
-        stateKeys.forEach((m) => {
-            if (m.startsWith("$")) {
-                globalState[m] = this.State[GLOBAL][m.slice(1)];
-            }
-        });
         try {
             const fn = new Function("State", `with(State) {return ${expression}}`);
-            const isTrue = fn(Object.assign(Object.assign({}, this.State[SCOPE]), globalState));
+            const isTrue = fn(Object.assign(Object.assign({}, this.State[SCOPE]), scopeState));
             if (!this.exprPrevValue[SCOPE]) {
                 this.exprPrevValue[SCOPE] = {};
             }
             this.exprPrevValue[SCOPE][expression] = isTrue;
-            for (let e of stateKeys) {
+            for (let stateName of stateKeys) {
                 let crrScope = SCOPE;
-                if (e.startsWith("$")) {
-                    e = e.slice(1);
-                    crrScope = GLOBAL;
+                const splittedState = stateName.split(":");
+                if (splittedState.length > 1) {
+                    const [compScope, compStateName] = splittedState;
+                    if (compScope === "$") {
+                        crrScope = GLOBAL;
+                    }
+                    else {
+                        crrScope = compScope;
+                    }
+                    stateName = compStateName;
                 }
-                if (!this.stateBlocks[crrScope]) {
-                    this.stateBlocks[crrScope] = {};
+                if (!this.stateIfBlock[crrScope]) {
+                    this.stateIfBlock[crrScope] = {};
                 }
-                if (!this.stateBlocks[crrScope][e]) {
-                    this.stateBlocks[crrScope][e] = [];
+                if (!this.stateIfBlock[crrScope][stateName]) {
+                    this.stateIfBlock[crrScope][stateName] = [];
                 }
-                this.stateBlocks[crrScope][e].push({
-                    expType: "if",
+                this.stateIfBlock[crrScope][stateName].push({
                     exp: expression,
                     trueElement: onTrueEl,
                     falseElement: onFalseEl,
@@ -235,30 +258,30 @@ class RectorJS {
     }
     map(config) {
         const { stateName: sn, render, keyExtractor } = config;
-        let stateName = sn;
         const SCOPE = this.activeScope();
-        if (!this.State[SCOPE]) {
-            this.State[SCOPE] = {};
-        }
-        this.checkStateExist(stateName, SCOPE);
-        let items;
+        let { stateKeys } = this.mapStateKeys(sn, SCOPE);
+        let stateName = stateKeys[0];
         let crrScope = SCOPE;
-        if (stateName.startsWith("$")) {
-            stateName = stateName.slice(1);
-            crrScope = GLOBAL;
-            items = this.State[crrScope][stateName];
+        const splittedState = stateName.split(":");
+        if (splittedState.length > 1) {
+            const [compScope, compStateName] = splittedState;
+            if (compScope === "$") {
+                crrScope = GLOBAL;
+            }
+            else {
+                crrScope = compScope;
+            }
+            stateName = compStateName;
         }
-        else {
-            items = this.State[SCOPE][stateName];
-        }
+        const items = this.State[crrScope][stateName];
         const fragment = document.createDocumentFragment();
         const commentRef = document.createComment("Rector Map");
         fragment.appendChild(commentRef);
-        if (!this.stateBlocks[crrScope]) {
-            this.stateBlocks[crrScope] = {};
+        if (!this.stateLoopBlock[crrScope]) {
+            this.stateLoopBlock[crrScope] = {};
         }
-        if (!this.stateBlocks[crrScope][stateName]) {
-            this.stateBlocks[crrScope][stateName] = [];
+        if (!this.stateLoopBlock[crrScope][stateName]) {
+            this.stateLoopBlock[crrScope][stateName] = [];
         }
         let firstChild = null;
         items.forEach((item, index) => {
@@ -268,8 +291,7 @@ class RectorJS {
             }
             fragment.appendChild(child);
         });
-        this.stateBlocks[crrScope][stateName].push({
-            expType: "map",
+        this.stateLoopBlock[crrScope][stateName].push({
             renderElement: render,
             firstNode: firstChild,
             keyExtractor,
@@ -306,11 +328,16 @@ class RectorJS {
         return this.scopeStack[L - 1];
     }
     routeCleanUp() {
-        var _a, _b, _c, _d;
+        var _a;
         this.State = { [GLOBAL]: (_a = this.State[GLOBAL]) !== null && _a !== void 0 ? _a : {} };
-        this.stateBlocks = { [GLOBAL]: (_b = this.stateBlocks[GLOBAL]) !== null && _b !== void 0 ? _b : {} };
-        this.stateUsageMap = { [GLOBAL]: (_c = this.stateUsageMap[GLOBAL]) !== null && _c !== void 0 ? _c : {} };
-        this.exprPrevValue = { [GLOBAL]: (_d = this.exprPrevValue[GLOBAL]) !== null && _d !== void 0 ? _d : {} };
+        this.stateIfBlock = {};
+        this.stateLoopBlock = {};
+        this.stateUsageMap = {};
+        this.exprPrevValue = {};
+        this.effects = new Map();
+        this.refs = {};
+        this.componentNameIdMap.clear();
+        this.componentTree = {};
     }
     stateUsage(scope) {
         var _a;
@@ -320,27 +347,30 @@ class RectorJS {
         return new Proxy((_a = this.State[scope]) !== null && _a !== void 0 ? _a : {}, {
             get: (_, stateName) => {
                 var _a;
-                if (stateName.startsWith("$")) {
-                    throw new RectorError(`State name started with '$' is not allowed in RectorJS.`);
-                }
-                this.checkStateExist(`${scope === GLOBAL ? "$" : ""}` + stateName, scope);
+                this.checkStateValid(stateName, scope);
                 return (_a = this.State[scope]) === null || _a === void 0 ? void 0 : _a[stateName];
             },
         });
     }
     configureState(stateName, value, scope) {
         if (typeof stateName !== "string") {
-            throw new RectorError("State name must be of string type");
+            throw new RectorError("State name must be of string type.");
         }
         stateName = stateName.trim();
         if (!stateName) {
             throw new RectorError("State name should be a valid string");
         }
-        if (stateName.startsWith("$")) {
-            throw new RectorError(`Invalid state name '${stateName}': State name should not start with a '$' in RectorJS`);
+        if (stateName === "$") {
+            throw new RectorError(`Restricted state name '${stateName}': State name '$' is reserved in RectorJS for Global state context, use another state name.`);
         }
-        if (!/^[A-Z_a-z][$\w]*$/.test(stateName)) {
-            throw new RectorError(`Invalid state name '${stateName}': State names must start with a letter , _  and only contain alphanumeric characters, $, or _.`);
+        if (isCamelCase(stateName)) {
+            const cmpId = this.componentNameIdMap.getByVal(stateName);
+            if (cmpId) {
+                throw new RectorError(`Restricted state name '${stateName}': Component with same name exist in parent/ancestor tree of this component.`);
+            }
+        }
+        if (!/^[$A-Z_a-z][$\w]*$/.test(stateName)) {
+            throw new RectorError(`Invalid state name '${stateName}': State names must start with a letter, $, or _ and only contain alphanumeric characters, $, or _.`);
         }
         if (reservedJSKeys.has(stateName)) {
             throw new RectorError(`Invalid state name '${stateName}': JavaScript keywords are not allowed as State name.`);
@@ -363,10 +393,6 @@ class RectorJS {
                 this.runEffects(stateName, scope);
             }
         };
-    }
-    component() {
-        const cmpId = `cmp-${this.cmpId++}`;
-        this.scopeStack.push(cmpId);
     }
     checkRouteAccess(path) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -409,16 +435,10 @@ class RectorJS {
         });
     }
     updateIfBlock(utl) {
-        let globalVars = {};
-        let stateKeys = this.extractStateKeys(utl.exp);
-        stateKeys.forEach((sk) => {
-            if (sk.startsWith("$")) {
-                globalVars[sk] = this.State[GLOBAL][sk.slice(1)];
-            }
-        });
+        let { scopeState } = this.mapStateKeys(utl.exp, utl.scope);
         try {
             const fn = new Function("State", `with(State) {return ${utl.exp}}`);
-            const isTrue = fn(Object.assign(Object.assign({}, this.State[utl.scope]), globalVars));
+            const isTrue = fn(Object.assign(Object.assign({}, this.State[utl.scope]), scopeState));
             const prevVal = this.exprPrevValue[utl.scope][utl.exp];
             if (prevVal !== isTrue) {
                 const El = (con) => (con ? utl.trueElement : utl.falseElement);
@@ -499,81 +519,119 @@ class RectorJS {
         utl.firstNode = newFirstChild;
     }
     reRender(stateName, oldValue, scope) {
-        var _a, _b;
+        var _a, _b, _c;
         const stateFullElements = (_a = this.stateUsageMap[scope]) === null || _a === void 0 ? void 0 : _a[stateName];
         if (stateFullElements) {
             for (let sfe of stateFullElements) {
-                const { parsedStr: updatedStateExpression } = this.parseStateVars(sfe.rawString, sfe.scope);
+                const { parsedStr: updatedStateExpression } = this.parseStateVars(sfe.rawString, sfe.scope, false);
                 sfe.element.childNodes[sfe.pos].nodeValue = updatedStateExpression;
             }
         }
-        const blocks = (_b = this.stateBlocks[scope]) === null || _b === void 0 ? void 0 : _b[stateName];
-        if (blocks) {
+        const ifBlocks = (_b = this.stateIfBlock[scope]) === null || _b === void 0 ? void 0 : _b[stateName];
+        if (ifBlocks) {
             const expVals = [];
             const uniqExps = new Set();
-            for (let utl of blocks) {
-                if (utl.expType === "if") {
-                    const exec = this.updateIfBlock(utl);
-                    if (exec && !uniqExps.has(exec.exp)) {
-                        expVals.push(Object.assign(Object.assign({}, exec), { scope: utl.scope }));
-                        uniqExps.add(exec.exp);
-                    }
-                }
-                if (utl.expType === "map") {
-                    utl.scope = scope;
-                    this.updateLoopBlock(utl, stateName, oldValue);
+            for (let utl of ifBlocks) {
+                const exec = this.updateIfBlock(utl);
+                if (exec && !uniqExps.has(exec.exp)) {
+                    expVals.push(Object.assign(Object.assign({}, exec), { scope: utl.scope }));
+                    uniqExps.add(exec.exp);
                 }
             }
             expVals.forEach(({ exp, val, scope }) => {
                 this.exprPrevValue[scope][exp] = val;
             });
         }
-    }
-    checkStateExist(stateName, scope) {
-        var _a, _b;
-        if (stateName.startsWith("$")) {
-            // @ts-ignore
-            if (!Object.hasOwn((_a = this.State[GLOBAL]) !== null && _a !== void 0 ? _a : {}, stateName.slice(1))) {
-                throw new RectorError(`Global State '${stateName}' is not declared in the App.`);
-            }
-        }
-        else {
-            // @ts-ignore
-            if (!Object.hasOwn((_b = this.State[scope]) !== null && _b !== void 0 ? _b : {}, stateName)) {
-                throw new RectorError(`State '${stateName}' is not declared in this Component.`);
+        const loopBlocks = (_c = this.stateLoopBlock[scope]) === null || _c === void 0 ? void 0 : _c[stateName];
+        if (loopBlocks) {
+            for (let utl of loopBlocks) {
+                utl.scope = scope;
+                this.updateLoopBlock(utl, stateName, oldValue);
             }
         }
     }
-    validateExpression(expr, uniqueIdentifiers, scope) {
+    checkStateValid(stateName, scope, checkExist = true) {
+        var _a;
+        if (reservedJSKeys.has(stateName)) {
+            throw new RectorError(`Invalid token: '${stateName}', Can not use global objects or JS keywords in inline expression`);
+        }
+        if (checkExist) {
+            // @ts-ignore
+            if (!Object.hasOwn((_a = this.State[scope]) !== null && _a !== void 0 ? _a : {}, stateName)) {
+                const scopeErrorMes = scope === GLOBAL
+                    ? `Global State '${stateName}' is not declared in the App.`
+                    : `State '${stateName}' is not declared in '${this.componentNameIdMap.getByKey(scope)}' component.`;
+                throw new RectorError(scopeErrorMes);
+            }
+        }
+    }
+    validateExpression(expr) {
         const dynamicExpr = expr.replace(/(['"`])(?:\\\1|.)*?\1/g, ""); // removes content inside '', "", or ``
         const assignmentPattern = /[^=!<>]=[^=]/;
         if (assignmentPattern.test(dynamicExpr)) {
-            throw new RectorError(`Invalid condition: assignment opration (=) is not allowed as expression.`);
+            throw new RectorError(`Invalid condition: assignment operation (=) is not allowed as expression.`);
         }
-        uniqueIdentifiers.forEach((idf) => {
-            if (reservedJSKeys.has(idf)) {
-                throw new RectorError(`Invalid token: '${idf}', Can not use global objects or JS keywords in inline expression`);
-            }
-            this.checkStateExist(idf, scope);
-        });
     }
-    parseStateVars(str, scope) {
+    mapStateKeys(expression, scope) {
+        let scopeState = {};
+        let extractedKeys = this.extractStateKeys(expression);
+        let stateKeys = extractedKeys.map((stateKey) => {
+            var _a;
+            const splittedKey = stateKey.split(".");
+            if (splittedKey.length > 1) {
+                const [firstKey, stateName] = splittedKey;
+                if (firstKey === "$") {
+                    this.checkStateValid(stateName, GLOBAL);
+                    scopeState[firstKey] = this.State[GLOBAL];
+                    return `${firstKey}:${stateName}`;
+                }
+                if (isCamelCase(firstKey)) {
+                    // @ts-ignore
+                    if (Object.hasOwn((_a = this.State[scope]) !== null && _a !== void 0 ? _a : {}, firstKey)) {
+                        this.checkStateValid(firstKey, scope, false);
+                        return firstKey;
+                    }
+                    else {
+                        const parentCompId = this.componentNameIdMap.getByVal(firstKey);
+                        if (parentCompId) {
+                            const parentIds = this.componentTree[scope];
+                            if (parentIds.has(parentCompId)) {
+                                this.checkStateValid(stateName, parentCompId);
+                                scopeState[firstKey] = this.State[parentCompId];
+                                return `${parentCompId}:${stateName}`;
+                            }
+                            else {
+                                const currentCompName = this.componentNameIdMap.getByKey(scope);
+                                throw new RectorError(`at '${stateKey}': Component named '${firstKey}' is not parent/ancestor of '${currentCompName}' component.`);
+                            }
+                        }
+                        else {
+                            this.checkStateValid(firstKey, scope);
+                        }
+                    }
+                }
+                this.checkStateValid(firstKey, scope);
+                return firstKey;
+            }
+            this.checkStateValid(stateKey, scope);
+            return stateKey;
+        });
+        return { scopeState, stateKeys };
+    }
+    parseStateVars(str, scope, validateExpr = true) {
         let matchStr = null;
         let isPsDefined = true;
-        let parsedStr = str.replace(/{{\s*([^}]+)\s*}}/g, (_, keyExpression) => {
+        let parsedStr = str.replace(/\[\[\s*([^\]]+)\s*\]\]/g, (_, keyExpression) => {
             keyExpression = keyExpression === null || keyExpression === void 0 ? void 0 : keyExpression.trim();
             if (keyExpression) {
-                matchStr = this.extractStateKeys(keyExpression);
-                let globalState = {};
-                matchStr.forEach((m) => {
-                    if (m.startsWith("$")) {
-                        globalState[m] = this.State[GLOBAL][m.slice(1)];
-                    }
-                });
-                this.validateExpression(keyExpression, matchStr, scope);
+                if (validateExpr) {
+                    this.validateExpression(keyExpression);
+                }
+                let { scopeState, stateKeys } = this.mapStateKeys(keyExpression, scope);
+                matchStr = stateKeys;
                 try {
                     const fn = new Function("State", `with(State) {return ${keyExpression}}`);
-                    return fn(Object.assign(Object.assign({}, this.State[scope]), globalState));
+                    return fn(Object.assign(Object.assign({}, this.State[scope]), scopeState));
                 }
                 catch (error) {
                     throw new RectorError(error === null || error === void 0 ? void 0 : error.message);
@@ -588,7 +646,7 @@ class RectorJS {
     extractStateKeys(expr) {
         const dynamicExpr = expr.trim().replace(/(['"`])(?:\\\1|.)*?\1/g, "");
         const matches = [
-            ...dynamicExpr.matchAll(/(?:^|[^.\w$])([$a-zA-Z_][$\w]*)/g),
+            ...dynamicExpr.matchAll(/([$a-zA-Z_][$\w]*(?:\.[a-zA-Z_$][\w$]*)*)/g),
         ];
         const identifiers = matches.map((m) => m[1]);
         return [...new Set(identifiers)];
@@ -641,16 +699,23 @@ class RectorJS {
             if (typeof child === "string") {
                 const childStr = child;
                 let splittedStr = childStr
-                    .split(/({{\s*[^}]+\s*}})/)
+                    .split(/(\[\[\s*[^\]]+\s*\]\])/g)
                     .filter((s) => s !== "");
                 for (let [idv, vl] of splittedStr.entries()) {
                     let { parsedStr, matchStr } = this.parseStateVars(vl, SCOPE);
                     if (matchStr) {
                         for (let stateName of matchStr) {
                             let crrScope = SCOPE;
-                            if (stateName.startsWith("$")) {
-                                stateName = stateName.slice(1);
-                                crrScope = GLOBAL;
+                            const splittedState = stateName.split(":");
+                            if (splittedState.length > 1) {
+                                const [compScope, compStateName] = splittedState;
+                                if (compScope === "$") {
+                                    crrScope = GLOBAL;
+                                }
+                                else {
+                                    crrScope = compScope;
+                                }
+                                stateName = compStateName;
                             }
                             if (!this.stateUsageMap[crrScope]) {
                                 this.stateUsageMap[crrScope] = {};
@@ -677,22 +742,11 @@ class RectorJS {
         }
         return elem;
     }
-    executeRenderQueue() {
-        this.renderQueue.forEach(({ data, callback }) => {
-            callback(data);
-        });
-    }
-    addToRenderQueue(data, callback) {
-        this.renderQueue.push({
-            data,
-            callback,
-        });
-    }
     print(showValues) {
         if (showValues) {
-            console.log("States: ", this.State, "\nState Blocks: ", this.stateBlocks, "\nState usage map: ", this.stateUsageMap, "\nExpressions: ", this.exprPrevValue);
+            console.log("States: ", this.State, "\nState If Blocks: ", this.stateIfBlock, "\nState Loop Blocks: ", this.stateLoopBlock, "\nState usage map: ", this.stateUsageMap, "\nExpressions: ", this.exprPrevValue);
         }
-        console.log("States: ", estimateObjectSize(this.State), "\nState Blocks: ", estimateObjectSize(this.stateBlocks), "\nState usage map: ", estimateObjectSize(this.stateUsageMap), "\nOther: ", estimateObjectSize(this.exprPrevValue, this.effects, this.events, this.refs));
+        console.log("States: ", estimateObjectSize(this.State), "\nState Blocks: ", estimateObjectSize(this.stateIfBlock, this.stateLoopBlock), "\nState usage map: ", estimateObjectSize(this.stateUsageMap), "\nOther: ", estimateObjectSize(this.exprPrevValue, this.effects, this.refs));
     }
 }
 export const Rector = new RectorJS();

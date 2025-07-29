@@ -26,12 +26,8 @@ type StateUsage = {
   };
 };
 
-type StateBlockConfig = {
-  expType: "if" | "map";
-  exp?: string;
-  trueElement?: HTMLElement | ChildNode;
-  falseElement?: HTMLElement | ChildNode;
-  renderElement?: (item, index: number) => HTMLElement;
+type StateLoopBlockConfig = {
+  renderElement?: (item: any, index: number) => HTMLElement;
   firstNode?: HTMLElement | ChildNode;
   parentNode?: ParentNode;
   commentRef?: Comment;
@@ -39,9 +35,22 @@ type StateBlockConfig = {
   scope?: string;
 };
 
-type StateBlocks = {
+type StateIfBlockConfig = {
+  exp: string;
+  trueElement?: HTMLElement | ChildNode;
+  falseElement?: HTMLElement | ChildNode;
+  scope?: string;
+};
+
+type StateLoopBlocks = {
   [scope: string]: {
-    [state: string]: StateBlockConfig[];
+    [stateName: string]: StateLoopBlockConfig[];
+  };
+};
+
+type StateIfBlocks = {
+  [scope: string]: {
+    [stateName: string]: StateIfBlockConfig[];
   };
 };
 
@@ -58,8 +67,10 @@ type RectorElementRef<T extends keyof HTMLElementTagNameMap> = {
 export {
   Attrs,
   RectorElements,
-  StateBlocks,
-  StateBlockConfig,
+  StateIfBlocks,
+  StateIfBlockConfig,
+  StateLoopBlocks,
+  StateLoopBlockConfig,
   StateUsage,
   RectorElementRef,
   // RectorRefs,

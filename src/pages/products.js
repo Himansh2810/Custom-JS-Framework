@@ -13,9 +13,10 @@ function Products() {
   const apiCaller = initState("caller", true);
 
   setEffect(async () => {
-    const data = await Query.get("https://fakestoreapi.com/products", {
-      cache: 30,
-    });
+    // const data = await Query.get("https://fakestoreapi.com/products", {
+    //   cache: 30,
+    // });
+    const data = [{ title: "Soap", price: 139 }];
     setProducts(data);
     setLoading(false);
   }, ["caller"]);
@@ -24,7 +25,7 @@ function Products() {
     <E.div class="p-2">
       <E.div class="flex justify-between items-center mb-4">
         <E.h1 class="text-white text-[36px] px-2  border-b-2 w-fit rounded-b-md border-sky-600">
-          Products
+          Products [[$list.length]]
         </E.h1>
         <E.button
           onclick={() => apiCaller((prev) => !prev)}

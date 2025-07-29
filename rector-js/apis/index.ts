@@ -9,25 +9,10 @@ class RectorQuery {
   } = {};
   private GETcacheDuration = 0;
 
-  private queryMethods: {
-    [key: string]: (url: string, queryConfig?: any) => any;
-  } = {};
-
   constructor() {}
 
   public setCacheDurationForGET(duration: number) {
     this.GETcacheDuration = duration;
-  }
-
-  private configureCache(url: string, duration: number) {
-    if (duration <= 0) {
-      return null;
-    }
-  }
-
-  private isURLCached(url: string) {
-    // @ts-ignore
-    return !!Object.hasOwn(this.cache, url);
   }
 
   public async get(
@@ -60,15 +45,8 @@ class RectorQuery {
     return res;
   }
 
-  public async post(
-    url: string,
-    data: any,
-    options?: {
-      cache?: boolean;
-      queryConfig: any;
-    }
-  ) {
-    const res = await this.context.post(url, data, options?.queryConfig);
+  public async post(url: string, data: any, queryConfig?: any) {
+    const res = await this.context.post(url, data, queryConfig);
     return res;
   }
 

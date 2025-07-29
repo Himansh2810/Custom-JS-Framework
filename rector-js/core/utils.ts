@@ -162,6 +162,10 @@ function isPlainObject(obj: any): boolean {
   return typeof obj === "object" && obj !== null && obj.constructor === Object;
 }
 
+function isCamelCase(str: string) {
+  return str[0] === str[0].toUpperCase();
+}
+
 export {
   isEqual,
   reservedJSKeys,
@@ -169,4 +173,5 @@ export {
   estimateObjectSize,
   isComponentFunction,
   isPlainObject,
+  isCamelCase,
 };
