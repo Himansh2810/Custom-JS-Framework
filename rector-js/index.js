@@ -14,6 +14,8 @@ import {
   navigate,
   renderApp,
   useElementRef,
+  getQueryParams,
+  getRouterParams,
 } from "./core/rector.js";
 
 import { Query } from "./apis/index.js";
@@ -35,4 +37,6 @@ export {
   navigate,
   renderApp,
   useElementRef,
+  getQueryParams,
+  getRouterParams,
 };

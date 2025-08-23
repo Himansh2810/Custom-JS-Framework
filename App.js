@@ -27,6 +27,7 @@ const ProductPageLayout = Layout(
   {
     "/": Welcome,
     "/products": Products,
+    "/products/:id": Products,
   },
   (CurrentRoute) => (
     <E.div class="bg-gray-800 min-h-[100vh]">

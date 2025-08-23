@@ -33,12 +33,14 @@ type StateLoopBlockConfig = {
   commentRef?: Comment;
   keyExtractor?: (item: any, index: number) => string | number;
   scope?: string;
+  positionScope?: string;
 };
 
 type StateIfBlockConfig = {
   exp: string;
-  trueElement?: HTMLElement | ChildNode;
-  falseElement?: HTMLElement | ChildNode;
+  trueElement?: () => HTMLElement | ChildNode;
+  falseElement?: () => HTMLElement | ChildNode;
+  placeholder?: () => Range;
   scope?: string;
 };
 

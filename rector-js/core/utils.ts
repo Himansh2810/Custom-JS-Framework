@@ -1,3 +1,26 @@
+class BiMap {
+  private fwd = {};
+  private bwd = {};
+  constructor() {}
+  set(key: string, value: string) {
+    this.fwd[key] = value;
+    this.bwd[value] = key;
+  }
+
+  clear() {
+    this.fwd = {};
+    this.bwd = {};
+  }
+
+  getByKey(key: string): string {
+    return this.fwd[key];
+  }
+
+  getByVal(value: string): string {
+    return this.bwd[value];
+  }
+}
+
 const reservedJSKeys = new Set([
   "true",
   "false",
@@ -166,6 +189,34 @@ function isCamelCase(str: string) {
   return str[0] === str[0].toUpperCase();
 }
 
+const unitlessProps = new Set([
+  "opacity",
+  "z-index",
+  "font-weight",
+  "line-height",
+  "zoom",
+  "flex",
+  "order",
+]);
+
+function styleObjectToCss(obj: { [key: string]: string | number }) {
+  return (
+    Object.entries(obj)
+      .map(([key, value]) => {
+        // convert camelCase to kebab-case
+        const cssKey = key.replace(/([A-Z])/g, "-$1").toLowerCase();
+
+        const cssValue =
+          typeof value === "number" && !unitlessProps.has(cssKey)
+            ? value + "px"
+            : value;
+
+        return `${cssKey}:${cssValue}`;
+      })
+      .join(";") + ";"
+  );
+}
+
 export {
   isEqual,
   reservedJSKeys,
@@ -174,4 +225,5 @@ export {
   isComponentFunction,
   isPlainObject,
   isCamelCase,
+  styleObjectToCss,
 };

@@ -1,6 +1,4 @@
-import { Rector } from "../../rector-js";
-
-const E = Rector.elements;
+import { Elements as E, navigate } from "../../rector-js";
 
 function ErrorPage() {
   return (
@@ -11,7 +9,7 @@ function ErrorPage() {
       </E.div>
       <E.button
         class="mt-6 bg-emerald-500 hover:bg-emerald-600 cursor-pointer text-white px-4 py-2 rounded-md"
-        onclick={() => Rector.navigate("/")}
+        onclick={() => navigate("/")}
       >
         Go Home &gt;
       </E.button>

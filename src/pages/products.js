@@ -5,18 +5,27 @@ import {
   Condition,
   Query,
   setEffect,
+  getRouterParams,
 } from "../../rector-js";
 
 function Products() {
   const setLoading = initState("loading", true);
   const setProducts = initState("products", []);
   const apiCaller = initState("caller", true);
+  const { id: productId } = getRouterParams();
 
   setEffect(async () => {
-    // const data = await Query.get("https://fakestoreapi.com/products", {
-    //   cache: 30,
-    // });
-    const data = [{ title: "Soap", price: 139 }];
+    let data = await Query.get(
+      `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
+      {
+        cache: 30,
+      }
+    );
+
+    if (!Array.isArray(data)) {
+      data = [data];
+    }
+
     setProducts(data);
     setLoading(false);
   }, ["caller"]);
@@ -25,7 +34,7 @@ function Products() {
     <E.div class="p-2">
       <E.div class="flex justify-between items-center mb-4">
         <E.h1 class="text-white text-[36px] px-2  border-b-2 w-fit rounded-b-md border-sky-600">
-          Products [[$list.length]]
+          Products
         </E.h1>
         <E.button
           onclick={() => apiCaller((prev) => !prev)}
@@ -59,7 +68,7 @@ function ProductCard({ product }) {
       <E.img
         src={product?.image}
         class="w-full h-48"
-        style={"object-fit:contain;"}
+        style={{ objectFit: "cover" }}
       />
       <E.h1 class="text-[20px] word-break mt-2">
         <E.span class="bg-sky-900 text-[14px] capitalize px-2 py-1 rounded-full mr-2">
@@ -70,6 +79,7 @@ function ProductCard({ product }) {
       <E.div class="flex justify-between items-center">
         <E.h1 class="text-[36px]">{product?.price}$</E.h1>
         <E.span>{product?.rating?.rate}/5.0</E.span>
+        <E.span>[[Products.loading]]</E.span>
       </E.div>
     </E.div>
   );

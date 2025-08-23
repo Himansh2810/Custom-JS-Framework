@@ -1,6 +1,4 @@
-import { Rector } from "../../rector-js";
-
-const E = Rector.elements;
+import { Rector, Elements as E } from "../../rector-js";
 
 function Navbar({ title = "" }) {
   return (

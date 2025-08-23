@@ -1,52 +1,57 @@
 import {
-  Rector,
+  navigate,
   Elements as E,
   initState,
-  setEffect,
-  useElementRef,
-  initGlobalState,
-  globalState,
   Condition,
   RectorMap,
+  setEffect,
 } from "../../rector-js";
 
-const setList = initGlobalState("list", [1, 2, 3, 4, 5]);
+const fruitcolormap = {
+  Apple: "coral",
+  Mango: "orange",
+  Watermelon: "green",
+};
 
-function TrueRender() {
+function MapCard({ item }) {
   return (
-    <E.div class="text-[28px] text-white">
-      [[ShowCount.greet + Welcome.count]] from True
+    <E.div class="p-3" style={{ backgroundColor: fruitcolormap[item] }}>
+      {item}[[Welcome.count]][[Test.test1]]
     </E.div>
   );
 }
 
-function ShowCount() {
-  initState("greet", "hey greet");
-
+function Test() {
+  initState("test1", "THE TEST");
   return (
-    <E.div class="text-[28px] text-white flex flex-col">
-      <E.span>[[Welcome.count]]</E.span>
-      <Condition
-        expression="Welcome.count > 4"
-        onTrueRender={<TrueRender />}
-        onFalseRender={<E.span>[[greet]]</E.span>}
-      />
-      <E.div>
-        <RectorMap
-          stateName="$.list"
-          render={(item) => <E.span>{item}</E.span>}
+    <>
+      <E.div>[[test1]]</E.div>
+      <E.div>[[Welcome.count]]</E.div>
+      <E.div class="flex gap-3">
+        <Condition
+          expression="Welcome.count >= 0"
+          onTrueRender={() => (
+            <RectorMap
+              stateName="Welcome.list"
+              render={(item) => <MapCard item={item} />}
+            />
+          )}
         />
       </E.div>
-    </E.div>
+    </>
   );
 }
 
 function Welcome() {
-  const setCount = initState("count", 3);
+  const setshow = initState("show", true);
+  const setcount = initState("count", 0);
+  const setList = initState("list", ["Apple"]);
 
-  setEffect(() => {
-    setList((prev) => [...prev, 6]);
-  }, ["count"]);
+  // setEffect(() => {
+  //   setTimeout(() => {
+  //     setList((prev) => [...prev, "Mango", "Watermelon"]);
+  //   }, 4000);
+  // });
 
   return (
     <E.div class="p-5">
@@ -54,23 +59,31 @@ function Welcome() {
         Welcome to Rector Products Page
       </E.h1>
 
-      <E.span class="text-white text-xl block">
-        List length + count: [[ count + $.list.length]]
-      </E.span>
-      <ShowCount />
-
-      <E.button
-        class="mt-4 bg-sky-500 p-2 rounded-md cursor-pointer"
-        onclick={() => setCount((prev) => prev + 1)}
-      >
-        Increment
-      </E.button>
-
+      <Condition expression="show" onTrueRender={() => <Test />} />
+      <Test />
       <E.button
         class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
-        onclick={() => Rector.navigate("/products")}
+        onclick={() => setshow((prev) => !prev)}
+      >
+        Change Show
+      </E.button>
+      <E.button
+        class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+        onclick={() => setcount((prev) => prev + 1)}
+      >
+        Change count
+      </E.button>
+      <E.button
+        class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+        onclick={() => navigate("/products")}
       >
         Products &gt;
+      </E.button>
+      <E.button
+        class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+        onclick={() => navigate("/products/1")}
+      >
+        First product &gt;
       </E.button>
     </E.div>
   );

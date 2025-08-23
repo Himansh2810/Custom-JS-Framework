@@ -150,4 +150,25 @@ function isPlainObject(obj) {
 function isCamelCase(str) {
     return str[0] === str[0].toUpperCase();
 }
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, };
+const unitlessProps = new Set([
+    "opacity",
+    "z-index",
+    "font-weight",
+    "line-height",
+    "zoom",
+    "flex",
+    "order",
+]);
+function styleObjectToCss(obj) {
+    return (Object.entries(obj)
+        .map(([key, value]) => {
+        // convert camelCase to kebab-case
+        const cssKey = key.replace(/([A-Z])/g, "-$1").toLowerCase();
+        const cssValue = typeof value === "number" && !unitlessProps.has(cssKey)
+            ? value + "px"
+            : value;
+        return `${cssKey}:${cssValue}`;
+    })
+        .join(";") + ";");
+}
+export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, };
