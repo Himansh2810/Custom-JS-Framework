@@ -53,3 +53,4 @@ IS_3:Make Layout Works better.
 
 /{{\s*([^}]+)\s*}}/g        /\[\[\s*([^\]]+)\s*\]\]/g
 
+tsc rector.ts --target ES6

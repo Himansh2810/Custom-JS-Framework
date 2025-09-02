@@ -169,16 +169,31 @@ function estimateObjectSize(...args): string {
   return `${(totalSize / 1024).toFixed(3)} KB`;
 }
 
-function isComponentFunction(fn: Function): string | false {
-  const source = fn.toString();
+function isComponentFunction(
+  fn: Function,
+  callback: (error: string) => void
+): string | false {
+  const fnSource = fn?.toString();
+  const fnName = fn?.name;
+
   if (
-    source.trim() === "attributes => this.createElement(tag, attributes)" &&
-    !fn?.name
+    fnName === "Fragment" &&
+    (fnSource?.includes(`function Fragment(`) ||
+      !fnSource?.includes(`Rector.fragment`))
+  ) {
+    callback(
+      `Restricted component name: "Fragment" is reserved for internal use (<>...</>). Please choose a different name.`
+    );
+  }
+
+  if (
+    fnSource.trim() === "attributes => this.createElement(tag, attributes)" &&
+    !fnName
   ) {
     return false;
   }
 
-  return fn?.name;
+  return fnName;
 }
 
 function isPlainObject(obj: any): boolean {
@@ -217,6 +232,23 @@ function styleObjectToCss(obj: { [key: string]: string | number }) {
   );
 }
 
+function removeValueFromObject(o: any, target: string) {
+  if (Array.isArray(o)) {
+    // remove the target value
+    return o.filter((item) => item !== target);
+  } else if (o && typeof o === "object") {
+    for (const key in o) {
+      o[key] = removeValueFromObject(o[key], target);
+
+      // OPTIONAL: delete key if its array became empty
+      if (Array.isArray(o[key]) && o[key].length === 0) {
+        delete o[key];
+      }
+    }
+  }
+  return o;
+}
+
 export {
   isEqual,
   reservedJSKeys,
@@ -226,4 +258,5 @@ export {
   isPlainObject,
   isCamelCase,
   styleObjectToCss,
+  removeValueFromObject,
 };

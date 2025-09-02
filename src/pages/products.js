@@ -8,27 +8,58 @@ import {
   getRouterParams,
 } from "../../rector-js";
 
+function Test() {
+  initState("count", 0);
+  return <E.div>[[Products.loading]]+[[count]]</E.div>;
+}
+
 function Products() {
-  const setLoading = initState("loading", true);
+  const setLoading = initState("loading", false);
   const setProducts = initState("products", []);
   const apiCaller = initState("caller", true);
   const { id: productId } = getRouterParams();
 
-  setEffect(async () => {
-    let data = await Query.get(
-      `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
+  const addProduct = async () => {
+    // let data = await Query.get(
+    //   `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
+    //   {
+    //     cache: 30,
+    //   }
+    // );
+
+    let data = [
       {
-        cache: 30,
-      }
-    );
+        id: 0,
+        title: "Samsung S25",
+        category: "Mobile",
+        price: "699",
+        rating: { rate: 4.3 },
+      },
+      {
+        id: 1,
+        title: "Samsung S25",
+        category: "Mobile",
+        price: "699",
+        rating: { rate: 4.3 },
+      },
+      {
+        id: 2,
+        title: "Samsung S25",
+        category: "Mobile",
+        price: "699",
+        rating: { rate: 4.3 },
+      },
+    ];
 
     if (!Array.isArray(data)) {
       data = [data];
     }
 
     setProducts(data);
-    setLoading(false);
-  }, ["caller"]);
+    // setLoading(false);
+  };
+
+  setEffect(addProduct, ["caller"]);
 
   return (
     <E.div class="p-2">
@@ -42,13 +73,32 @@ function Products() {
         >
           Refresh
         </E.button>
+        <E.button
+          class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+          onclick={() =>
+            setProducts((prev) => {
+              const old = [...prev];
+              old.splice(1, 1);
+              return old;
+            })
+          }
+        >
+          Clear Middle
+        </E.button>
+        <E.button
+          class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+          onclick={() => setLoading((prev) => !prev)}
+        >
+          Reload
+        </E.button>
       </E.div>
+      <E.span>[[loading]]</E.span>
       <Condition
         expression="loading"
-        onTrueRender={
+        onTrueRender={() => (
           <E.div class="text-white text-[24px]">Getting your products...</E.div>
-        }
-        onFalseRender={
+        )}
+        onFalseRender={() => (
           <E.div class="flex flex-wrap gap-6 p-2">
             <RectorMap
               stateName="products"
@@ -56,7 +106,7 @@ function Products() {
               keyExtractor={(item) => item?.id}
             />
           </E.div>
-        }
+        )}
       />
     </E.div>
   );

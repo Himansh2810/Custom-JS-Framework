@@ -11,12 +11,13 @@ const fruitcolormap = {
   Apple: "coral",
   Mango: "orange",
   Watermelon: "green",
+  Lemon: "yellow",
 };
 
 function MapCard({ item }) {
   return (
     <E.div class="p-3" style={{ backgroundColor: fruitcolormap[item] }}>
-      {item}[[Welcome.count]][[Test.test1]]
+      {item}
     </E.div>
   );
 }
@@ -28,6 +29,7 @@ function Test() {
       <E.div>[[test1]]</E.div>
       <E.div>[[Welcome.count]]</E.div>
       <E.div class="flex gap-3">
+        <E.span>0</E.span>
         <Condition
           expression="Welcome.count >= 0"
           onTrueRender={() => (
@@ -37,6 +39,7 @@ function Test() {
             />
           )}
         />
+        <E.span>1</E.span>
       </E.div>
     </>
   );
@@ -45,7 +48,9 @@ function Test() {
 function Welcome() {
   const setshow = initState("show", true);
   const setcount = initState("count", 0);
-  const setList = initState("list", ["Apple"]);
+  const setList = initState("list", ["Mango", "Apple"]);
+
+  // "Apple", "Mango", "Watermelon"
 
   // setEffect(() => {
   //   setTimeout(() => {
@@ -60,12 +65,26 @@ function Welcome() {
       </E.h1>
 
       <Condition expression="show" onTrueRender={() => <Test />} />
-      <Test />
+      {/* <Test /> */}
       <E.button
         class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
         onclick={() => setshow((prev) => !prev)}
       >
         Change Show
+      </E.button>
+
+      <E.button
+        class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+        onclick={() => setList((prev) => [...prev, "Lemon"])}
+      >
+        Change List
+      </E.button>
+
+      <E.button
+        class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+        onclick={() => setList([])}
+      >
+        Empty List
       </E.button>
       <E.button
         class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"

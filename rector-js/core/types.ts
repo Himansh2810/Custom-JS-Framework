@@ -17,7 +17,7 @@ type StateUseObj = {
   element: HTMLElement;
   pos?: number;
   rawString?: string;
-  scope?: string;
+  cmpId?: string;
 };
 
 type StateUsage = {
@@ -32,8 +32,8 @@ type StateLoopBlockConfig = {
   parentNode?: ParentNode;
   commentRef?: Comment;
   keyExtractor?: (item: any, index: number) => string | number;
-  scope?: string;
-  positionScope?: string;
+  cmpId?: string;
+  positionIndex?: number;
 };
 
 type StateIfBlockConfig = {
@@ -41,24 +41,44 @@ type StateIfBlockConfig = {
   trueElement?: () => HTMLElement | ChildNode;
   falseElement?: () => HTMLElement | ChildNode;
   placeholder?: () => Range;
-  scope?: string;
+  cmpId?: string;
+  blockId?: string;
 };
 
 type StateLoopBlocks = {
   [scope: string]: {
-    [stateName: string]: StateLoopBlockConfig[];
+    [stateName: string]: string[];
   };
 };
 
 type StateIfBlocks = {
   [scope: string]: {
-    [stateName: string]: StateIfBlockConfig[];
+    [stateName: string]: string[];
   };
 };
 
 type RectorElementRef<T extends keyof HTMLElementTagNameMap> = {
   [refName: string]: HTMLElementTagNameMap[T];
 };
+interface IfBlockConfig {
+  exp: string;
+  trueElement?: () => HTMLElement | ChildNode;
+  falseElement?: () => HTMLElement | ChildNode;
+  placeholder?: () => Range;
+  cmpId?: string;
+  childBlock?: string;
+}
+
+interface LoopBlockConfig {
+  renderElement?: (item: any, index: number) => HTMLElement;
+  firstNode?: HTMLElement | ChildNode;
+  parentNode?: ParentNode;
+  commentRef?: Comment;
+  keyExtractor?: (item: any, index: number) => string | number;
+  cmpId?: string;
+  positionIndex?: number;
+  childBlocks?: Set<string>;
+}
 
 // type RectorRefs = {
 //   [K in keyof HTMLElementTagNameMap]: {
@@ -75,6 +95,8 @@ export {
   StateLoopBlockConfig,
   StateUsage,
   RectorElementRef,
+  IfBlockConfig,
+  LoopBlockConfig,
   // RectorRefs,
 };
 

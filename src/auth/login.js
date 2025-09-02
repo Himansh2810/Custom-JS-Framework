@@ -74,7 +74,7 @@ function Login() {
       >
         Don't have account ? Create
       </E.button>
-      <E.p className="text-rose-500">{"{{ errorMes }}"}</E.p>
+      <E.p className="text-rose-500">[[errorMes]]</E.p>
     </E.div>
   );
 }
