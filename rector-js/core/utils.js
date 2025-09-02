@@ -1,3 +1,23 @@
+class BiMap {
+    constructor() {
+        this.fwd = {};
+        this.bwd = {};
+    }
+    set(key, value) {
+        this.fwd[key] = value;
+        this.bwd[value] = key;
+    }
+    clear() {
+        this.fwd = {};
+        this.bwd = {};
+    }
+    getByKey(key) {
+        return this.fwd[key];
+    }
+    getByVal(value) {
+        return this.bwd[value];
+    }
+}
 const reservedJSKeys = new Set([
     "true",
     "false",
@@ -136,13 +156,19 @@ function estimateObjectSize(...args) {
     });
     return `${(totalSize / 1024).toFixed(3)} KB`;
 }
-function isComponentFunction(fn) {
-    const source = fn.toString();
-    if (source.trim() === "attributes => this.createElement(tag, attributes)" &&
-        !(fn === null || fn === void 0 ? void 0 : fn.name)) {
+function isComponentFunction(fn, callback) {
+    const fnSource = fn === null || fn === void 0 ? void 0 : fn.toString();
+    const fnName = fn === null || fn === void 0 ? void 0 : fn.name;
+    if (fnName === "Fragment" &&
+        ((fnSource === null || fnSource === void 0 ? void 0 : fnSource.includes(`function Fragment(`)) ||
+            !(fnSource === null || fnSource === void 0 ? void 0 : fnSource.includes(`Rector.fragment`)))) {
+        callback(`Restricted component name: "Fragment" is reserved for internal use (<>...</>). Please choose a different name.`);
+    }
+    if (fnSource.trim() === "attributes => this.createElement(tag, attributes)" &&
+        !fnName) {
         return false;
     }
-    return fn === null || fn === void 0 ? void 0 : fn.name;
+    return fnName;
 }
 function isPlainObject(obj) {
     return typeof obj === "object" && obj !== null && obj.constructor === Object;
@@ -171,4 +197,20 @@ function styleObjectToCss(obj) {
     })
         .join(";") + ";");
 }
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, };
+function removeValueFromObject(o, target) {
+    if (Array.isArray(o)) {
+        // remove the target value
+        return o.filter((item) => item !== target);
+    }
+    else if (o && typeof o === "object") {
+        for (const key in o) {
+            o[key] = removeValueFromObject(o[key], target);
+            // OPTIONAL: delete key if its array became empty
+            if (Array.isArray(o[key]) && o[key].length === 0) {
+                delete o[key];
+            }
+        }
+    }
+    return o;
+}
+export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, removeValueFromObject, };
