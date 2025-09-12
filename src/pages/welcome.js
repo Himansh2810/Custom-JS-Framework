@@ -24,19 +24,26 @@ function MapCard({ item }) {
 
 function Test() {
   initState("test1", "THE TEST");
+
+  setEffect(() => {
+    console.log("Effect run in Test component:)");
+  }, ["Welcome.count"]);
+
   return (
     <>
       <E.div>[[test1]]</E.div>
-      <E.div>[[Welcome.count]]</E.div>
+      <E.div class="text-white">Count:[[Welcome.count]]</E.div>
       <E.div class="flex gap-3">
         <E.span>0</E.span>
         <Condition
-          expression="Welcome.count >= 0"
+          expression="Welcome.count <= 0"
           onTrueRender={() => (
+            // <E.div>
             <RectorMap
               stateName="Welcome.list"
               render={(item) => <MapCard item={item} />}
             />
+            // </E.div>
           )}
         />
         <E.span>1</E.span>
@@ -60,9 +67,9 @@ function Welcome() {
 
   return (
     <E.div class="p-5">
-      <E.h1 class="text-white text-[36px]" ref="head">
+      <E.p class="text-white text-[36px]" ref="head">
         Welcome to Rector Products Page
-      </E.h1>
+      </E.p>
 
       <Condition expression="show" onTrueRender={() => <Test />} />
       {/* <Test /> */}
@@ -90,7 +97,13 @@ function Welcome() {
         class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
         onclick={() => setcount((prev) => prev + 1)}
       >
-        Change count
+        Inc count
+      </E.button>
+      <E.button
+        class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
+        onclick={() => setcount((prev) => prev - 1)}
+      >
+        Dec count
       </E.button>
       <E.button
         class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
@@ -109,3 +122,57 @@ function Welcome() {
 }
 
 export default Welcome;
+
+// nav.defineRoutes([
+//   {
+//     path: "/",
+//     component: App,
+//   },
+//   {
+//     path: "/home",
+//     layout: (CrrRoute) => (
+//       <>
+//         <Navbar />
+//         <CrrRoute />
+//         <Footer />
+//       </>
+//     ),
+//     children: [
+//       { path: "", component: Home },
+//       { path: "/about", component: About },
+//     ],
+//   },
+//   {
+//     path: "/*",
+//     component: Fallback,
+//   },
+// ]);
+
+// nav.defineRoutes({
+//   "/": App,
+//   "/home": {
+//     layout: (CrrRoute) => (
+//       <>
+//         <Navbar />
+//         <CrrRoute />
+//         <Footer />
+//       </>
+//     ),
+//     children: {
+//       "": Home,
+//       "/about": About,
+//     },
+//   },
+//   "/*": Fallback,
+// });
+
+// HomeLayout = Layout({
+//     "":Home,
+//     "/about":About
+//   }, (CrrRoute) => (
+//     <>
+//       <Navbar />
+//       <CrrRoute />
+//       <Footer />
+//     </>
+//   ));

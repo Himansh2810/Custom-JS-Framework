@@ -1,6 +1,6 @@
 import { Elements as E, navigate } from "../../rector-js";
 
-function ErrorPage() {
+function NotFoundPage() {
   return (
     <E.div class="bg-gray-900 text-rose-700 h-[100vh] flex flex-col items-center justify-center">
       <E.div class="flex items-end gap-5">
@@ -17,4 +17,4 @@ function ErrorPage() {
   );
 }
 
-export default ErrorPage;
+export default NotFoundPage;
