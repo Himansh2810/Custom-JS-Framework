@@ -21,9 +21,7 @@ type StateUseObj = {
 };
 
 type StateUsage = {
-  [scope: string]: {
-    [state: string]: StateUseObj[];
-  };
+  [state: string]: StateUseObj[];
 };
 
 type StateLoopBlockConfig = {
@@ -46,9 +44,7 @@ type StateIfBlockConfig = {
 };
 
 type StateLoopBlocks = {
-  [scope: string]: {
-    [stateName: string]: string[];
-  };
+  [stateName: string]: string[];
 };
 
 type StateIfBlocks = {
@@ -67,6 +63,7 @@ interface IfBlockConfig {
   placeholder?: () => Range;
   cmpId?: string;
   childBlock?: string;
+  stateData?: string[];
 }
 
 interface LoopBlockConfig {
@@ -78,6 +75,16 @@ interface LoopBlockConfig {
   cmpId?: string;
   positionIndex?: number;
   childBlocks?: Set<string>;
+  stateData?: string[];
+}
+
+interface EffectConfig {
+  [id: string]: {
+    depends: boolean;
+    scope: string;
+    extDeps: string[];
+    fn: () => (() => void) | void;
+  };
 }
 
 // type RectorRefs = {
@@ -88,6 +95,7 @@ interface LoopBlockConfig {
 
 export {
   Attrs,
+  EffectConfig,
   RectorElements,
   StateIfBlocks,
   StateIfBlockConfig,

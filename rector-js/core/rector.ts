@@ -19,6 +19,7 @@ import {
   StateLoopBlockConfig,
   IfBlockConfig,
   LoopBlockConfig,
+  EffectConfig,
 } from "./types.js";
 
 declare global {
@@ -60,15 +61,173 @@ class RectorError extends Error {
   }
 }
 
+class RectorNavigation {
+  public routerParams: { [key: string]: string } = {};
+  private routes: { [route: string]: () => HTMLElement } = {};
+  private routeRegexCache: {
+    [route: string]: {
+      regex: RegExp;
+      paramNames: string[];
+    };
+  } = {};
+  private routeAccess: {
+    protectedRoutes: string[];
+    middleware: (path: string) => boolean | Promise<boolean>;
+  };
+
+  constructor() {}
+
+  private buildRouteRegex(route: string) {
+    const paramNames: string[] = [];
+    const regexPath = route.replace(/:([^/]+)/g, (_, key) => {
+      paramNames.push(key);
+      return "([^/]+)";
+    });
+    this.routeRegexCache[route] = {
+      regex: new RegExp(`^${regexPath}$`),
+      paramNames,
+    };
+  }
+
+  public defineRoutes(routes: { [path: string]: any }) {
+    Object.entries(routes).forEach(([path, routeComp]) => {
+      if (!path.startsWith("/")) {
+        throw new RectorError("Route path must start with '/'");
+      }
+
+      if (typeof routeComp === "function") {
+        this.routes[path] = routeComp;
+      } else {
+        Object.assign(this.routes, routeComp);
+      }
+
+      this.buildRouteRegex(path);
+    });
+  }
+
+  public setProtectedRoutes(
+    routes: string[],
+    middleware: (path: string) => boolean | Promise<boolean>
+  ) {
+    this.routeAccess = {
+      protectedRoutes: routes,
+      middleware,
+    };
+  }
+
+  public createLayoutRoutes(
+    childRoutes: { [path: string]: any },
+    layoutComponent: (RouteComponent: () => HTMLElement) => HTMLElement
+  ) {
+    let routes: { [path: string]: () => HTMLElement } = {};
+    const buildLayout = (cr) => {
+      Object.entries(cr).forEach(([path, rl]) => {
+        let routeEl = rl as any;
+        if (typeof routeEl === "function") {
+          routes[path] = () => layoutComponent(routeEl);
+          this.buildRouteRegex(path);
+        } else {
+          buildLayout(routeEl);
+        }
+      });
+    };
+    buildLayout(childRoutes);
+    return routes;
+  }
+
+  private matchRoute(pathname: string) {
+    this.routerParams = {};
+
+    if (this.routes[pathname]) {
+      return this.routes[pathname];
+    }
+
+    for (const route in this.routes) {
+      const { regex, paramNames } = this.routeRegexCache[route];
+      const match = pathname.match(regex);
+      if (match) {
+        paramNames.forEach((name, i) => {
+          this.routerParams[name] = match[i + 1];
+        });
+        return this.routes[route];
+      }
+    }
+
+    return null;
+  }
+
+  private async runMiddleware(path: string) {
+    if (!this.routeAccess) {
+      return true;
+    }
+
+    const isPathProtected = () => {
+      for (const route of this.routeAccess?.protectedRoutes ?? []) {
+        if (route.endsWith("/*")) {
+          const base = route.slice(0, -2);
+          if (path === base || path.startsWith(base + "/")) {
+            return true;
+          }
+        }
+        if (route === path) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    if (isPathProtected()) {
+      try {
+        return await this.routeAccess.middleware(path);
+      } catch (error) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  public async resolveRoute() {
+    const initPath = window.location.pathname;
+    const app = this.matchRoute(initPath);
+    if (!app) {
+      const fallbackRoute = this.routes["/*"];
+      if (fallbackRoute) {
+        return {
+          fallback: true,
+          render: fallbackRoute,
+        };
+      } else {
+        throw new RectorError(
+          `INVALID ROUTE: '${initPath}' route is not initialized.\nProvide fallback route '/*' to handle any undeclared route.`
+        );
+      }
+    }
+
+    const isRouteAccessible = await this.runMiddleware(initPath);
+
+    if (!isRouteAccessible) return;
+
+    return {
+      fallback: false,
+      render: app,
+    };
+  }
+}
+
 class Component {
   public id: string;
   public name: string;
   public parentId: string;
-  public parentPropUsage: Set<string> = new Set();
-
-  public setParentPropUsage(id: string) {
-    this.parentPropUsage.add(id);
-  }
+  public state: { [stateName: string]: any } = {};
+  public stateUsage: StateUsage = {};
+  public loops: { [stateName: string]: string[] } = {};
+  public conditions: { [stateName: string]: string[] } = {};
+  public effects: { [stateName: string]: number[] } = {};
+  public unmounts: { cleanUp?: [number, string[]]; fn?: () => void }[] = [];
+  public refs: { [refName: string]: any } = {};
+  public exprPrevValue: { [expr: string]: boolean } = {};
 
   constructor(name: string, id: string, parentId?: string) {
     this.name = name;
@@ -87,25 +246,12 @@ class Block {
 
 class RectorJS {
   // Private Properties //
-  private State: { [scope: string]: { [stateName: string]: any } } = {};
-  private stateUsageMap: StateUsage = {};
-  private stateIfBlock: StateIfBlocks = {};
-  private stateLoopBlock: StateLoopBlocks = {};
-  private effects: Map<string, { [stateName: string]: any[] }> = new Map();
-  private refs: { [scope: string]: { [refName: string]: any } } = {};
-  private exprPrevValue: { [scope: string]: { [expr: string]: boolean } } = {};
+  private navigation: RectorNavigation;
+  private effectFuns: EffectConfig = {};
+  private effectId = 0;
   private cmpId = 0;
   private scopeStack: Component[] = [];
-  private isAppRendering = false;
-  private routerParams: { [key: string]: string } = {};
-  private routes: { [route: string]: () => HTMLElement } = {};
-  private routeAccess: {
-    protectedRoutes: Set<string>;
-    grantAccess: () => boolean;
-    onFallback: () => void;
-  };
 
-  private globalComponent = new Component("App", GLOBAL, null);
   private componentIdMap: { [id: string]: Component } = {};
   private componentNames = new Set<string>();
   private getComponent(id: string) {
@@ -124,21 +270,28 @@ class RectorJS {
     "bound map",
     "Fragment",
   ]);
+  private errorBoundary: (error: Error) => HTMLElement;
 
   // Public Properties //
 
   public elements: RectorElements;
-  public globalState = this.stateUsage(GLOBAL);
+  public globalState: { [stateName: string]: any };
 
   // constructor setup //
 
   constructor() {
+    this.navigation = new RectorNavigation();
+
     this.elements = new Proxy({} as RectorElements, {
       get: (_, tag: keyof HTMLElementTagNameMap) => {
         return (attributes: Attrs<typeof tag>): HTMLElement =>
           this.createElement(tag, attributes);
       },
     });
+
+    const globalComponent = new Component("$", GLOBAL, null);
+    this.componentIdMap[GLOBAL] = globalComponent;
+    this.globalState = this.stateUsage(globalComponent);
   }
 
   // -----Public methods----- //
@@ -195,107 +348,81 @@ class RectorJS {
     return params;
   }
 
-  public Routes(routes: { [path: string]: any }) {
+  public getHash() {
+    return window.location.hash.slice(1);
+  }
+
+  public setErrorBoundary(component: (error: Error) => HTMLElement) {
+    this.errorBoundary = component;
+  }
+
+  public defineRoutes(routes: { [path: string]: any }) {
     window.addEventListener("popstate", () => {
       const pathName = window.location.pathname;
       this.navigate(pathName);
     });
-
-    Object.entries(routes).forEach(([path, routeComp]) => {
-      if (!path.startsWith("/")) {
-        throw new RectorError("Route path must start with '/'");
-      }
-
-      if (typeof routeComp === "function") {
-        this.routes[path] = routeComp;
-      } else {
-        Object.assign(this.routes, routeComp);
-      }
-    });
+    this.navigation.defineRoutes(routes);
   }
 
-  public ProtectedRoutes(RouteAccess: {
-    routes: string[];
-    grantAccess: () => boolean;
-    onFallback: () => void;
-  }) {
-    this.routeAccess = {
-      protectedRoutes: new Set(RouteAccess.routes),
-      grantAccess: RouteAccess.grantAccess,
-      onFallback: RouteAccess.onFallback,
-    };
+  public setProtectedRoutes(
+    routes: string[],
+    middleware: (path: string) => boolean | Promise<boolean>
+  ) {
+    this.navigation.setProtectedRoutes(routes, middleware);
   }
 
-  public Layout(
+  public createLayoutRoutes(
     childRoutes: { [path: string]: any },
     layoutComponent: (RouteComponent: () => HTMLElement) => HTMLElement
   ) {
-    let routes = {};
-    const buildLayout = (cr) => {
-      Object.entries(cr).forEach(([path, rl]) => {
-        let routeEl = rl as any;
-        if (typeof routeEl === "function") {
-          routes[path] = () => layoutComponent(routeEl);
-        } else {
-          buildLayout(routeEl);
-        }
-      });
-    };
-    buildLayout(childRoutes);
-    return routes;
+    return this.navigation.createLayoutRoutes(childRoutes, layoutComponent);
   }
 
   public navigate(path: string) {
-    history.pushState({}, "", path);
-    this.routeCleanUp();
-    this.renderApp();
+    if (window.location.pathname !== path) {
+      history.pushState({}, "", path);
+      this.routeCleanUp();
+      this.renderApp();
+    }
   }
 
   public getComponentState() {
-    return this.stateUsage();
+    return this.stateUsage(this.activeComponent());
   }
 
   public getRouterParams() {
-    return this.routerParams;
+    return this.navigation.routerParams;
   }
 
   public async renderApp() {
+    const data = await this.navigation.resolveRoute();
+    console.log("data: ", data);
+
+    if (!data) return;
+
     const body = document.querySelector("body");
-    const initPath = window.location.pathname;
-    const app = this.matchRoute(initPath);
-    if (!app) {
-      const fallbackRoute = this.routes["/*"];
-      if (fallbackRoute) {
-        body.innerHTML = "";
-        this.isAppRendering = true;
-        body.append(fallbackRoute());
-        this.isAppRendering = false;
-        return;
+    body.innerHTML = "";
+
+    try {
+      this.scopeStack.push(this.getComponent(GLOBAL));
+      body.append(this.jsx(data.render, {}));
+      this.scopeStack.pop();
+      this.runMicrotasks();
+      this.runEffectQueue();
+      this.navigation.routerParams = {};
+    } catch (error) {
+      body.innerHTML = "";
+      if (this.errorBoundary) {
+        console.error(error);
+        try {
+          body.append(this.jsx(this.errorBoundary, error));
+        } catch (er2) {
+          throw er2;
+        }
       } else {
-        throw new RectorError(
-          `INVALID ROUTE: '${initPath}' route is not initialized.\nProvide fallback route '/*' to handle any undeclared route.`
-        );
+        throw error;
       }
     }
-
-    const isRouteAccessible = await this.checkRouteAccess(initPath);
-
-    if (!isRouteAccessible) {
-      this.routeAccess.onFallback();
-      return;
-    }
-
-    body.innerHTML = ""; // Clear existing content
-    this.scopeStack.push(this.globalComponent);
-    this.isAppRendering = true;
-    console.time("App_loaded_in");
-    body.append(this.jsx(app, {}));
-    console.timeEnd("App_loaded_in");
-    this.isAppRendering = false;
-    this.scopeStack.pop();
-    this.runMicrotasks();
-    this.runEffects();
-    this.routerParams = {};
   }
 
   private runMicrotasks() {
@@ -326,42 +453,56 @@ class RectorJS {
     return this.configureState(stateName, value, cmpId);
   }
 
-  private effectQueue: Map<string, any[]> = new Map();
+  private effectQueue: number[] = [];
 
-  public setEffect(fn: () => void, depends?: string[]) {
-    const component = this.activeComponent();
-
-    const SCOPE = component.id;
-
+  public setEffect(fn: () => (() => void) | void, depends?: string[]) {
     if (typeof fn !== "function") {
       throw new RectorError("Effect must be a function");
     }
 
+    const component = this.activeComponent();
+
+    const efId = this.effectId++;
+
+    const externalDeps: string[] = [];
+
     if (depends && depends.length > 0) {
-      depends.forEach((stateName) => {
-        if (typeof stateName !== "string") {
+      depends.forEach((stateStr) => {
+        if (typeof stateStr !== "string") {
           throw new RectorError(
             "[setEffect] Dependencies must be an array of strings"
           );
         }
-        this.checkStateValid(stateName, SCOPE, component.name);
 
-        const prevStateEffects = this.effects.get(SCOPE) ?? {};
+        let crrComponent: Component;
+        let stateName: string;
+        const { stateKeys } = this.mapStateKeys(stateStr, component);
+        const scopeState = stateKeys[0].split(":");
+        if (scopeState.length > 1) {
+          crrComponent = this.getComponent(scopeState[0]);
+          stateName = scopeState[1];
+          externalDeps.push(`${scopeState[0]}:${scopeState[1]}`);
+        } else {
+          crrComponent = component;
+          stateName = stateStr;
+        }
 
-        this.effects.set(SCOPE, {
-          ...prevStateEffects,
-          [stateName]: [...(prevStateEffects?.[stateName] ?? []), fn],
-        });
+        if (!crrComponent.effects[stateName]) {
+          crrComponent.effects[stateName] = [];
+        }
+
+        crrComponent.effects[stateName].push(efId);
       });
     }
 
-    if (this.effectQueue.has(SCOPE)) {
-      const cmpQueue = this.effectQueue.get(SCOPE);
-      cmpQueue.push(fn);
-      this.effectQueue.set(SCOPE, cmpQueue);
-    } else {
-      this.effectQueue.set(SCOPE, [fn]);
-    }
+    this.effectFuns[efId] = {
+      scope: component.id,
+      depends: depends && depends.length > 0,
+      extDeps: externalDeps,
+      fn,
+    };
+
+    this.effectQueue.push(efId);
   }
 
   private setUpBlock(id?: string) {
@@ -387,12 +528,9 @@ class RectorJS {
       const cmp = this.activeComponent();
       const SCOPE = cmp.id;
       this.validateExpression(expression);
-      let { stateKeys, scopeState } = this.mapStateKeys(expression, SCOPE);
+      let { stateKeys, scopeState } = this.mapStateKeys(expression, cmp);
       const fn = new Function("State", `with(State) {return ${expression}}`);
-      const isTrue = fn({ ...this.State[SCOPE], ...scopeState });
-      if (!this.exprPrevValue[SCOPE]) {
-        this.exprPrevValue[SCOPE] = {};
-      }
+      const isTrue = fn({ ...cmp.state, ...scopeState });
 
       const checkCompStructure = (Fn: () => HTMLElement | ChildNode) => {
         let fn2 = Fn;
@@ -431,7 +569,7 @@ class RectorJS {
 
       crrEl = element;
 
-      this.exprPrevValue[SCOPE][expression] = isTrue;
+      cmp.exprPrevValue[expression] = isTrue;
 
       this.conditionalBlocks[ifBlockId] = {
         exp: expression,
@@ -440,34 +578,25 @@ class RectorJS {
         falseElement: falseEl,
         placeholder: nextPlaceholder,
         childBlock: blockId,
+        stateData: stateKeys,
       };
 
       for (let stateName of stateKeys) {
-        let crrScope = SCOPE;
+        let crrComponent = cmp;
 
         const splittedState = stateName.split(":");
 
         if (splittedState.length > 1) {
           const [compScope, compStateName] = splittedState;
-
-          if (compScope === "$") {
-            crrScope = GLOBAL;
-          } else {
-            crrScope = compScope;
-          }
-
           stateName = compStateName;
+          crrComponent = this.getComponent(compScope);
         }
 
-        if (!this.stateIfBlock[crrScope]) {
-          this.stateIfBlock[crrScope] = {};
+        if (!crrComponent.conditions[stateName]) {
+          crrComponent.conditions[stateName] = [];
         }
 
-        if (!this.stateIfBlock[crrScope][stateName]) {
-          this.stateIfBlock[crrScope][stateName] = [];
-        }
-
-        this.stateIfBlock[crrScope][stateName].push(ifBlockId);
+        crrComponent.conditions[stateName].push(ifBlockId);
       }
 
       // this.executionStack.pop();
@@ -495,34 +624,22 @@ class RectorJS {
 
     const component = this.activeComponent();
     const SCOPE = component.id;
-    let { stateKeys } = this.mapStateKeys(sn, SCOPE);
+    let { stateKeys } = this.mapStateKeys(sn, component);
     let stateName = stateKeys[0];
-    let crrScope = SCOPE;
+    let crrComponent = component;
     const splittedState = stateName.split(":");
 
     if (splittedState.length > 1) {
       const [compScope, compStateName] = splittedState;
-      if (compScope === "$") {
-        crrScope = GLOBAL;
-      } else {
-        crrScope = compScope;
-      }
+      crrComponent = this.getComponent(compScope);
       stateName = compStateName;
     }
 
-    const items: any[] = this.State[crrScope][stateName];
+    const items: any[] = crrComponent.state[stateName];
 
     const fragment = document.createDocumentFragment();
     const commentRef = document.createComment("Rector Map");
     fragment.appendChild(commentRef);
-
-    if (!this.stateLoopBlock[crrScope]) {
-      this.stateLoopBlock[crrScope] = {};
-    }
-
-    if (!this.stateLoopBlock[crrScope][stateName]) {
-      this.stateLoopBlock[crrScope][stateName] = [];
-    }
 
     let firstChild = null;
 
@@ -554,9 +671,14 @@ class RectorJS {
       keyExtractor,
       cmpId: SCOPE,
       childBlocks: new Set(childBlocks),
+      stateData: splittedState,
     };
 
-    this.stateLoopBlock[crrScope][stateName].push(loopBlockId);
+    if (!crrComponent.loops[stateName]) {
+      crrComponent.loops[stateName] = [];
+    }
+
+    crrComponent.loops[stateName].push(loopBlockId);
 
     this.microTaskQueue.push(() => {
       const parentNode = commentRef.parentNode;
@@ -575,17 +697,16 @@ class RectorJS {
   public useElementRef<T extends keyof HTMLElementTagNameMap>(
     elementTagName?: T
   ) {
-    const SCOPE = this.activeComponent().id;
+    const component = this.activeComponent();
     return new Proxy({} as RectorElementRef<T>, {
       get: (_, refName: string) => {
         const refKey = `${elementTagName}:${refName}`;
-        // @ts-ignore
-        if (!Object.hasOwn(this.refs[SCOPE] ?? {}, refKey)) {
+        if (!Object.hasOwn(component.refs ?? {}, refKey)) {
           throw new RectorError(
-            `Ref '${refName}' doesn't exist on any '${elementTagName}' element.`
+            `Ref '${refName}' doesn't exist on any '${elementTagName}' element in '${component.name}' component.`
           );
         }
-        return this.refs[SCOPE][refKey];
+        return component.refs[refKey];
       },
     });
   }
@@ -602,73 +723,33 @@ class RectorJS {
 
   // ------Private methods ---- //
 
-  private matchRoute(pathname: string) {
-    const isRouteExist = this.routes[pathname];
-
-    if (isRouteExist) {
-      return isRouteExist;
-    } else {
-      for (const route in this.routes) {
-        const paramNames = [];
-        // Build regex: /products/:id → ^/products/([^/]+)$
-        const regexPath = route.replace(/:([^/]+)/g, (_, key) => {
-          paramNames.push(key);
-          return "([^/]+)"; // match until next slash
-        });
-
-        const regex = new RegExp(`^${regexPath}$`);
-        const match = pathname.match(regex);
-
-        if (match) {
-          paramNames.forEach((name, i) => {
-            this.routerParams[name] = match[i + 1];
-          });
-          return this.routes[route];
-        }
-      }
-      return null;
-    }
-  }
-
   private activeComponent() {
     const L = this.scopeStack.length;
     return this.scopeStack[L - 1];
   }
 
   private routeCleanUp() {
-    this.State = { [GLOBAL]: this.State[GLOBAL] ?? {} };
-    this.stateIfBlock = {};
-    this.stateLoopBlock = {};
-    this.stateUsageMap = {};
-    this.exprPrevValue = {};
-    this.effects = new Map();
-    this.refs = {};
-    this.componentIdMap = {};
+    this.componentIdMap = {
+      [GLOBAL]: this.getComponent(GLOBAL),
+    };
     this.loopBlocks = {};
     this.conditionalBlocks = {};
     this.blocksMap = {};
+    this.effectFuns = {};
   }
 
-  private stateUsage(scope?: string) {
-    let component: Component;
-    if (!scope) {
-      component = this.activeComponent();
-      scope = component.id;
-    }
-
-    if (!this.State[scope]) {
-      this.State[scope] = {};
-    }
-
-    return new Proxy(this.State[scope] ?? {}, {
+  private stateUsage(component: Component) {
+    return new Proxy(component.state, {
       get: (_, stateName: string) => {
-        this.checkStateValid(stateName, scope, component?.name);
-        return this.State[scope]?.[stateName];
+        this.checkStateValid(component, stateName);
+        return component.state?.[stateName];
       },
     });
   }
 
   private configureState<V>(stateName: string, value: V, scope: string) {
+    const component = this.getComponent(scope);
+
     if (typeof stateName !== "string") {
       throw new RectorError("State name must be of string type.");
     }
@@ -686,7 +767,7 @@ class RectorJS {
     }
 
     if (this.componentNames.has(stateName)) {
-      if (stateName === this.getComponent(scope).name) {
+      if (stateName === component.name) {
         throw new RectorError(
           `Restricted state name: State "${stateName}" conflicts with component name "${stateName}".Please choose a different state name.`
         );
@@ -708,66 +789,95 @@ class RectorJS {
       );
     }
 
-    const isCmp = scope !== GLOBAL;
-
-    if (!this.State[scope]) {
-      this.State[scope] = {};
-    }
-
-    // @ts-ignore
-    if (Object.hasOwn(this.State[scope], stateName)) {
+    if (Object.hasOwn(component.state, stateName)) {
+      const isGlobalCmp = scope === GLOBAL;
       throw new RectorError(
         `${
-          !isCmp ? "Global" : ""
+          isGlobalCmp ? "Global" : ""
         } State '${stateName}' is already declared in this ${
-          !isCmp ? "App" : `Component '${this.getComponent(scope).name}'`
+          isGlobalCmp ? "App" : `'${component.name}' Component`
         }.`
       );
     }
 
-    this.State[scope][stateName] = value;
+    component.state[stateName] = value;
+
+    // const isCmp = scope !== GLOBAL;
+
+    // if (!this.State[scope]) {
+    //   this.State[scope] = {};
+    // }
+
+    // // @ts-ignore
+    // if (Object.hasOwn(this.State[scope], stateName)) {
+    //   throw new RectorError(
+    //     `${
+    //       !isCmp ? "Global" : ""
+    //     } State '${stateName}' is already declared in this ${
+    //       !isCmp ? "App" : `Component '${this.getComponent(scope).name}'`
+    //     }.`
+    //   );
+    // }
+
+    // this.State[scope][stateName] = value;
 
     return (val: V | ((prev: V) => V)) => {
-      const oldValue: V = this.State[scope][stateName];
+      const oldValue: V = component.state[stateName];
 
       const newVal: V =
         typeof val === "function" ? (val as (prev: V) => V)(oldValue) : val;
 
-      this.State[scope][stateName] = newVal;
+      component.state[stateName] = newVal;
+      // this.State[scope][stateName] = newVal;
 
       if (!isEqual(oldValue, newVal)) {
         this.reRender(stateName, oldValue, scope);
         this.runMicrotasks();
-        this.runEffects(stateName, scope);
+        this.runEffectQueue();
+        this.runEffects(component, stateName);
       }
     };
   }
 
-  private async checkRouteAccess(path: string) {
-    if (!this.routeAccess) {
-      return true;
-    }
-    const isPathProtected = this.routeAccess.protectedRoutes.has(path);
-    if (isPathProtected) {
-      const hasAccess = this.routeAccess.grantAccess();
-      return hasAccess;
-    }
-    return true;
+  private async runEffectQueue() {
+    this.effectQueue.forEach((efId) => {
+      const { scope, fn, depends, extDeps } = this.effectFuns[efId];
+      if (scope && fn) {
+        const unmount = fn();
+        let obj = {};
+
+        if (unmount && typeof unmount === "function") {
+          obj = {
+            fn: unmount,
+          };
+        }
+
+        if (extDeps && extDeps.length > 0) {
+          obj = {
+            ...obj,
+            cleanUp: [efId, extDeps],
+          };
+        }
+
+        if (Object.keys(obj).length > 0) {
+          this.getComponent(scope).unmounts?.push(obj);
+        }
+      }
+
+      if (!depends) {
+        delete this.effectFuns[efId];
+      }
+    });
+
+    this.effectQueue = [];
   }
 
-  private async runEffects(stateName?: string, scope?: string) {
-    if (stateName && scope) {
-      const effects = this.effects.get(scope) ?? {};
-      const stateEffects = effects[stateName];
-      if (stateEffects && stateEffects.length > 0) {
-        stateEffects.forEach((fn) => fn());
-      }
-    } else {
-      this.effectQueue.forEach((effectArray) => {
-        effectArray.forEach((fn) => fn());
+  private async runEffects(component: Component, stateName: string) {
+    const effects = component.effects[stateName];
+    if (effects) {
+      effects?.forEach((efId) => {
+        this.effectFuns[efId]?.fn();
       });
-
-      this.effectQueue.clear();
     }
   }
 
@@ -793,6 +903,10 @@ class RectorJS {
         fragmentNodes[0],
         fragmentNodes[fragmentNodes.length - 1],
       ];
+
+      if (first instanceof Comment) {
+        first = fragmentNodes[1];
+      }
     } else {
       first = last = element;
     }
@@ -810,44 +924,105 @@ class RectorJS {
     };
   }
 
+  private removeBlockRef(
+    scopeStateArr: string[],
+    cmpId: string,
+    target: string,
+    blockType: "loops" | "conditions"
+  ) {
+    let cmp: Component;
+    let stateName: string;
+
+    if (scopeStateArr?.length === 2) {
+      const [scope, name] = scopeStateArr;
+      cmp = this.getComponent(scope);
+      stateName = name;
+    } else {
+      cmp = this.getComponent(cmpId);
+      stateName = scopeStateArr[0];
+    }
+
+    if (cmp && stateName) {
+      const filteredIds = cmp[blockType][stateName]?.filter(
+        (t) => t !== target
+      );
+      if (!filteredIds?.length) {
+        delete cmp[blockType][stateName];
+      } else {
+        cmp[blockType][stateName] = filteredIds;
+      }
+    }
+  }
+
+  private effectCleanUp(cleanUpArr: [number, string[]]) {
+    const [efId, extDeps] = cleanUpArr;
+    extDeps?.forEach((ed) => {
+      const [scope, stateName] = ed.split(":");
+      const cmp = this.getComponent(scope);
+      if (cmp && stateName) {
+        const filtered = cmp.effects[stateName].filter((e) => e !== efId);
+        if (!filtered.length) {
+          delete cmp.effects[stateName];
+        } else {
+          cmp.effects[stateName] = filtered;
+        }
+      }
+    });
+
+    delete this.effectFuns[efId];
+  }
+
   private async unmount(blockId: string) {
     const block = this.blocksMap[blockId];
 
     if (!block) return;
 
     (block?.componentRendered ?? []).forEach((cmpId) => {
-      delete this.State[cmpId];
-      delete this.stateIfBlock[cmpId];
-      delete this.stateLoopBlock[cmpId];
-      delete this.stateUsageMap[cmpId];
-      delete this.exprPrevValue[cmpId];
-      delete this.refs[cmpId];
+      const cmpUnmounts = this.getComponent(cmpId)?.unmounts;
+      cmpUnmounts?.forEach((config) => {
+        if (config?.fn) {
+          config?.fn();
+        }
+        if (config?.cleanUp) {
+          this.effectCleanUp(config?.cleanUp);
+        }
+      });
       delete this.componentIdMap[cmpId];
-      this.effects.delete(cmpId);
     });
 
     [...block?.stateUsage].forEach((usage) => {
       const [scope, stateName] = usage.split(":");
+      const cmp = this.getComponent(scope);
 
-      const usageArr = this.stateUsageMap[scope]?.[stateName];
+      const usageArr = cmp?.stateUsage?.[stateName];
       if (usageArr) {
-        this.stateUsageMap[scope][stateName] = usageArr.filter(
+        cmp.stateUsage[stateName] = usageArr.filter(
           (s) => s.element.isConnected
         );
       }
     });
 
     (block.loopIds ?? []).forEach((loopId) => {
-      const childBlocks = [...(this.loopBlocks[loopId]?.childBlocks ?? [])];
+      const loop = this.loopBlocks[loopId];
+      const childBlocks = [...(loop?.childBlocks ?? [])];
       childBlocks.forEach((cBlockId) => this.unmount(cBlockId));
-      this.stateLoopBlock = removeValueFromObject(this.stateLoopBlock, loopId);
+
+      this.removeBlockRef(loop.stateData, loop.cmpId, loopId, "loops");
       delete this.loopBlocks[loopId];
     });
 
     (block.conditionIds ?? []).forEach((conditionId) => {
-      const childBlock = this.conditionalBlocks[conditionId]?.childBlock;
-      this.unmount(childBlock);
-      this.stateIfBlock = removeValueFromObject(this.stateIfBlock, conditionId);
+      const condition = this.conditionalBlocks[conditionId];
+      this.unmount(condition?.childBlock);
+
+      condition?.stateData?.forEach((data) => {
+        this.removeBlockRef(
+          data.split(":"),
+          condition.cmpId,
+          conditionId,
+          "conditions"
+        );
+      });
       delete this.conditionalBlocks[conditionId];
     });
 
@@ -857,15 +1032,16 @@ class RectorJS {
   private updateIfBlock(blockId: string) {
     const blockConfig = this.conditionalBlocks[blockId];
     const scope = blockConfig.cmpId;
-    let { scopeState } = this.mapStateKeys(blockConfig.exp, scope);
+    const cmp = this.getComponent(scope);
+    let { scopeState } = this.mapStateKeys(blockConfig.exp, cmp);
 
     try {
       const fn = new Function(
         "State",
         `with(State) {return ${blockConfig.exp}}`
       );
-      const isTrue = fn({ ...this.State[scope], ...scopeState });
-      const prevVal = this.exprPrevValue[scope][blockConfig.exp];
+      const isTrue = fn({ ...cmp.state, ...scopeState });
+      const prevVal = cmp.exprPrevValue[blockConfig.exp];
       if (prevVal !== isTrue) {
         const El = (con: boolean) =>
           con ? blockConfig.trueElement : blockConfig.falseElement;
@@ -910,8 +1086,9 @@ class RectorJS {
     oldValue: any,
     scope: string
   ) {
+    const cmp = this.getComponent(scope);
     const blockConfig = this.loopBlocks[loopBlockId];
-    const newList: any[] = this.State[scope][stateName];
+    const newList: any[] = cmp.state[stateName];
     const oldList = [...oldValue];
     let firstChild = blockConfig.firstNode;
     let parent = firstChild?.parentNode || blockConfig.parentNode;
@@ -1033,20 +1210,22 @@ class RectorJS {
   }
 
   private reRender(stateName: string, oldValue: any, scope: string) {
-    const stateFullElements = this.stateUsageMap[scope]?.[stateName];
+    const component = this.getComponent(scope);
+
+    const stateFullElements = component.stateUsage?.[stateName];
 
     if (stateFullElements) {
       for (let sfe of stateFullElements) {
         const { parsedStr: updatedStateExpression } = this.parseStateVars(
           sfe.rawString,
-          sfe.cmpId,
+          scope === sfe.cmpId ? component : this.getComponent(sfe.cmpId),
           false
         );
         sfe.element.childNodes[sfe.pos].nodeValue = updatedStateExpression;
       }
     }
 
-    const ifBlocks = this.stateIfBlock[scope]?.[stateName];
+    const ifBlocks = component.conditions?.[stateName];
 
     if (ifBlocks) {
       const expVals = new Map();
@@ -1062,11 +1241,11 @@ class RectorJS {
       }
 
       for (const { exp, val, scope } of expVals.values()) {
-        this.exprPrevValue[scope][exp] = val;
+        this.getComponent(scope).exprPrevValue[exp] = val;
       }
     }
 
-    const loopBlocks = this.stateLoopBlock[scope]?.[stateName];
+    const loopBlocks = component.loops?.[stateName];
 
     if (loopBlocks) {
       for (let blockId of loopBlocks) {
@@ -1075,28 +1254,20 @@ class RectorJS {
     }
   }
 
-  private checkStateValid(
-    stateName: string,
-    scope: string,
-    componentName: string,
-    checkExist = true
-  ) {
+  private checkStateValid(component: Component, stateName: string) {
     if (reservedJSKeys.has(stateName)) {
       throw new RectorError(
         `Invalid token: '${stateName}', Can not use global objects or JS keywords in inline expression`
       );
     }
 
-    if (checkExist) {
-      // @ts-ignore
-      if (!Object.hasOwn(this.State[scope] ?? {}, stateName)) {
-        const scopeErrorMes =
-          scope === GLOBAL
-            ? `Global State '${stateName}' is not declared in the App.`
-            : `State '${stateName}' is not declared in '${componentName}' component.`;
+    if (!Object.hasOwn(component.state ?? {}, stateName)) {
+      const scopeErrorMes =
+        component.id === GLOBAL
+          ? `Global State '${stateName}' is not declared in the App.`
+          : `State '${stateName}' is not declared in '${component.name}' component.`;
 
-        throw new RectorError(scopeErrorMes);
-      }
+      throw new RectorError(scopeErrorMes);
     }
   }
 
@@ -1111,10 +1282,9 @@ class RectorJS {
     }
   }
 
-  private mapStateKeys(expression: string, scope: string) {
+  private mapStateKeys(expression: string, activeComponent: Component) {
     let scopeState = {};
     let extractedKeys = this.extractStateKeys(expression);
-    const cmp = this.getComponent(scope);
 
     let stateKeys = extractedKeys.map((stateKey) => {
       const splittedKey = stateKey.split(".");
@@ -1122,71 +1292,43 @@ class RectorJS {
       if (splittedKey.length > 1) {
         const [firstKey, stateName] = splittedKey;
         if (firstKey === "$") {
-          this.checkStateValid(stateName, GLOBAL, "");
-          scopeState[firstKey] = this.State[GLOBAL];
-          return `${firstKey}:${stateName}`;
+          const globalComponent = this.getComponent(GLOBAL);
+          this.checkStateValid(globalComponent, stateName);
+          scopeState[firstKey] = globalComponent.state;
+          return `${GLOBAL}:${stateName}`;
         }
 
         if (this.componentNames.has(firstKey)) {
-          if (firstKey === cmp.name) {
+          if (firstKey === activeComponent.name) {
             throw new Error(
               `Invalid self-reference: Use "${stateName}" instead of "${firstKey}.${stateName}" inside component "${firstKey}".`
             );
           }
-          let p = this.getComponent(cmp.parentId);
-          while (p) {
-            if (p.id === GLOBAL) {
+          let parentCmp = this.getComponent(activeComponent.parentId);
+          while (parentCmp) {
+            if (parentCmp.id === GLOBAL) {
               throw new RectorError(
-                `Can't access child component '${firstKey}' in '${cmp.name}' component.`
+                `Can't access child component '${firstKey}' in '${activeComponent.name}' component.`
               );
             }
 
-            if (p.name === firstKey) {
+            if (parentCmp.name === firstKey) {
               break;
             }
 
-            p = this.getComponent(p.parentId);
+            parentCmp = this.getComponent(parentCmp.parentId);
           }
 
-          const cmpState = `${p.id}:${stateName}`;
-          cmp.setParentPropUsage(cmpState);
-          this.checkStateValid(stateName, p.id, p.name);
-          scopeState[firstKey] = this.State[p.id];
-          return cmpState;
+          this.checkStateValid(parentCmp, stateName);
+          scopeState[firstKey] = parentCmp.state;
+          return `${parentCmp.id}:${stateName}`;
         } else {
-          this.checkStateValid(firstKey, scope, cmp.name);
+          this.checkStateValid(activeComponent, firstKey);
           return firstKey;
         }
-
-        // if (isCamelCase(firstKey)) {
-        //   // @ts-ignore
-        //   if (Object.hasOwn(this.State[scope] ?? {}, firstKey)) {
-        //     this.checkStateValid(firstKey, scope, false);
-        //     return firstKey;
-        //   } else {
-        //     const parentCompId = this.componentNameIdMap.get(firstKey);
-        //     console.log("firstKey: ", firstKey, parentCompId);
-        //     if (parentCompId) {
-        //       const parentIds = component.parent;
-        //       console.log("parentIds: ", parentIds, parentCompId);
-        //       if (parentIds.has(parentCompId)) {
-        //         this.checkStateValid(stateName, parentCompId);
-        //         scopeState[firstKey] = this.State[parentCompId];
-        //         return `${parentCompId}:${stateName}`;
-        //       } else {
-        //         const currentCompName = this.componentNameFromId(scope);
-        //         throw new RectorError(
-        //           `at '${stateKey}': Component named '${firstKey}' is not parent/ancestor of '${currentCompName}' component.`
-        //         );
-        //       }
-        //     } else {
-        //       this.checkStateValid(firstKey, scope);
-        //     }
-        //   }
-        // }
       }
 
-      this.checkStateValid(stateKey, scope, cmp.name);
+      this.checkStateValid(activeComponent, stateKey);
 
       return stateKey;
     });
@@ -1194,7 +1336,11 @@ class RectorJS {
     return { scopeState, stateKeys };
   }
 
-  private parseStateVars(str: string, scope: string, validateExpr = true) {
+  private parseStateVars(
+    str: string,
+    activeComponent: Component,
+    validateExpr = true
+  ) {
     let matchStr: string[] | null = null;
     let isPsDefined = true;
     let parsedStr = str.replace(
@@ -1209,7 +1355,7 @@ class RectorJS {
 
           let { scopeState, stateKeys } = this.mapStateKeys(
             keyExpression,
-            scope
+            activeComponent
           );
 
           matchStr = stateKeys;
@@ -1219,7 +1365,8 @@ class RectorJS {
               "State",
               `with(State) {return ${keyExpression}}`
             );
-            return fn({ ...this.State[scope], ...scopeState });
+
+            return fn({ ...activeComponent.state, ...scopeState });
           } catch (error) {
             throw new RectorError(error?.message);
           }
@@ -1248,7 +1395,7 @@ class RectorJS {
     tag: K,
     attributes: Attrs<K>
   ): HTMLElementTagNameMap[K] {
-    const SCOPE = this.activeComponent().id;
+    const component = this.activeComponent();
     const elem = document.createElement(tag);
     const children = attributes.children;
 
@@ -1259,27 +1406,39 @@ class RectorJS {
         if (key.startsWith("on") && typeof val === "function") {
           elem.addEventListener(key.slice(2), val);
         } else {
-          if (key === "checked") {
-            // @ts-ignore
-            elem.checked = value;
-          } else if (key === "ref") {
-            const refKeyName = `${tag}:${val}`;
-            if (!this.refs[SCOPE]) {
-              this.refs[SCOPE] = {};
+          switch (key) {
+            case "checked": {
+              // @ts-ignore
+              elem.checked = value;
+              break;
             }
-            this.refs[SCOPE][refKeyName] = elem;
-          } else if (key === "className") {
-            elem.setAttribute("class", val);
-          } else if (key === "style") {
-            if (isPlainObject(val)) {
-              elem.setAttribute(key, styleObjectToCss(val));
-            } else {
-              console.error(
-                "[RectorJs]: Only CSS style object is valid for 'style' key."
-              );
+
+            case "ref": {
+              const refKeyName = `${tag}:${val}`;
+              component.refs[refKeyName] = elem;
+              break;
             }
-          } else {
-            elem.setAttribute(key, val);
+
+            case "className": {
+              elem.setAttribute("class", val);
+              break;
+            }
+
+            case "style": {
+              if (isPlainObject(val)) {
+                elem.setAttribute(key, styleObjectToCss(val));
+              } else {
+                console.error(
+                  "[RectorJs]: Only CSS style object is valid for 'style' key."
+                );
+              }
+              break;
+            }
+
+            default: {
+              elem.setAttribute(key, val);
+              break;
+            }
           }
         }
       }
@@ -1321,37 +1480,30 @@ class RectorJS {
           .filter((s) => s !== "");
 
         for (let [idv, vl] of splittedStr.entries()) {
-          let { parsedStr, matchStr } = this.parseStateVars(vl, SCOPE);
+          let { parsedStr, matchStr } = this.parseStateVars(vl, component);
 
           if (matchStr) {
             for (let stateName of matchStr) {
               let crrScope = SCOPE;
 
+              let crrComponent = component;
+
               const splittedState = stateName.split(":");
 
               if (splittedState.length > 1) {
                 const [compScope, compStateName] = splittedState;
-
-                if (compScope === "$") {
-                  crrScope = GLOBAL;
-                } else {
-                  crrScope = compScope;
-                }
-
+                crrScope = compScope;
                 stateName = compStateName;
+                crrComponent = this.getComponent(compScope);
               }
 
               this.activeBlock()?.stateUsage.add(`${crrScope}:${stateName}`);
 
-              if (!this.stateUsageMap[crrScope]) {
-                this.stateUsageMap[crrScope] = {};
+              if (!crrComponent.stateUsage[stateName]) {
+                crrComponent.stateUsage[stateName] = [];
               }
 
-              if (!this.stateUsageMap[crrScope][stateName]) {
-                this.stateUsageMap[crrScope][stateName] = [];
-              }
-
-              this.stateUsageMap[crrScope][stateName].push({
+              crrComponent.stateUsage[stateName].push({
                 element: elem,
                 pos: idx + idv,
                 rawString: vl,
@@ -1377,37 +1529,32 @@ class RectorJS {
   public print(showValues?: false) {
     if (showValues) {
       console.log(
-        "States: ",
-        this.State,
-        "\nState If Blocks: ",
-        this.stateIfBlock,
-        "\nState Loop Blocks: ",
-        this.stateLoopBlock,
-        "\nState usage map: ",
-        this.stateUsageMap,
-        "\nExpressions: ",
-        this.exprPrevValue,
+        "\nEffect Funs: ",
+        this.effectFuns,
         "\nComponentDATA: ",
         this.componentIdMap,
-        "\n:ScopeStack: ",
-        this.scopeStack,
-        "\n:Execution: ",
+        "\nBlocks: ",
         this.blocksMap,
+        "\nLoops: ",
         this.loopBlocks,
-        this.conditionalBlocks
-        // this.executionData
+        "\nConditions: ",
+        this.conditionalBlocks,
+        "\nNavigation: ",
+        this.navigation
       );
     }
 
     console.log(
-      "States: ",
-      estimateObjectSize(this.State),
-      "\nState Blocks: ",
-      estimateObjectSize(this.stateIfBlock, this.stateLoopBlock),
-      "\nState usage map: ",
-      estimateObjectSize(this.stateUsageMap),
-      "\nOther: ",
-      estimateObjectSize(this.exprPrevValue, this.effects, this.refs)
+      "\nConditional Blocks: ",
+      estimateObjectSize(this.conditionalBlocks),
+      "\nLoop Blocks: ",
+      estimateObjectSize(this.loopBlocks),
+      "\nBlocks: ",
+      estimateObjectSize(this.blocksMap),
+      "\nEffects: ",
+      estimateObjectSize(this.effectFuns),
+      "\nComponents: ",
+      estimateObjectSize(this.componentIdMap)
     );
   }
 }
@@ -1417,11 +1564,20 @@ export const initState: typeof Rector.initState = Rector.initState.bind(Rector);
 export const initGlobalState: typeof Rector.initGlobalState =
   Rector.initGlobalState.bind(Rector);
 
+// export const Navigation = {
+//   createLayoutRoutes: Rector.createLayoutRoutes,
+//   defineRoutes: Rector.defineRoutes,
+//   setProtectedRoutes: Rector.setProtectedRoutes,
+//   navigate: Rector.navigate,
+// };
+
 export const setEffect: typeof Rector.setEffect = Rector.setEffect.bind(Rector);
-export const Layout: typeof Rector.Layout = Rector.Layout.bind(Rector);
-export const Routes: typeof Rector.Routes = Rector.Routes.bind(Rector);
-export const ProtectedRoutes: typeof Rector.ProtectedRoutes =
-  Rector.ProtectedRoutes.bind(Rector);
+export const createLayoutRoutes: typeof Rector.createLayoutRoutes =
+  Rector.createLayoutRoutes.bind(Rector);
+export const defineRoutes: typeof Rector.defineRoutes =
+  Rector.defineRoutes.bind(Rector);
+export const setProtectedRoutes: typeof Rector.setProtectedRoutes =
+  Rector.setProtectedRoutes.bind(Rector);
 export const RectorMap: typeof Rector.map = Rector.map.bind(Rector);
 export const Condition: typeof Rector.condition = Rector.condition.bind(Rector);
 export const getComponentState: typeof Rector.getComponentState =
