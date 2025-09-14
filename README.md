@@ -11,6 +11,7 @@ This project is designed to explore component-based architecture and built on co
 - Lightweight and fast
 - Easy to use Routing sysytem
 - Caching Query mechenism
+- & More ...
 
 ## 📝 Usage
 
@@ -40,9 +41,13 @@ function Home(){
 }
 ```
 
-## NOTE :
+## Syntax & Working:
  - It uses string template for rendering state value , write your state name in [[state_name]] it will be parsed with its real value.
  - If you declare `initState` outside of component then it will became a `globalState` can accible allover your app anywhere using `$` namespace.
    Example: In Home component & Child component , you can access globalState 'user' by writing :  `[[$.user.name]]`
  - Don't have to pass props to child , in child component use parent component namespace directly.
    Like in above code example , `Child` component's parent is `Home` , so for accessing `Home`'s state `count` inside Child you can write as `[[Home.count]]`
+
+## NOTE:
+ - This framewrok is still in development phase, in future many changes regarding rules & syntax can happen.
+ - Soon updates code snippets for all feature available in framework (Routing,Query etc). Stay tuned !!✌🏻
