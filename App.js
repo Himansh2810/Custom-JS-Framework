@@ -24,7 +24,9 @@ Query.context = {
 };
 
 Rector.setErrorBoundary((error) => (
-  <E.div class="text-rose-500 p-4">ERROR: {error.message}</E.div>
+  <E.div class="text-rose-400 h-screen bg-gray-900 p-4">
+    ERROR: {error.message}
+  </E.div>
 ));
 
 const ProductPageLayout = createLayoutRoutes(

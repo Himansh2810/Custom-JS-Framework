@@ -194,25 +194,19 @@ class RectorNavigation {
     if (!app) {
       const fallbackRoute = this.routes["/*"];
       if (fallbackRoute) {
-        return {
-          fallback: true,
-          render: fallbackRoute,
-        };
+        return fallbackRoute;
       } else {
         throw new RectorError(
-          `INVALID ROUTE: '${initPath}' route is not initialized.\nProvide fallback route '/*' to handle any undeclared route.`
+          `INVALID ROUTE: '${initPath}' route is not define.`
         );
       }
     }
 
     const isRouteAccessible = await this.runMiddleware(initPath);
 
-    if (!isRouteAccessible) return;
+    if (!isRouteAccessible) return null;
 
-    return {
-      fallback: false,
-      render: app,
-    };
+    return app;
   }
 }
 
@@ -334,10 +328,28 @@ class RectorJS {
 
   public fragment({ children }) {
     const container = document.createDocumentFragment();
+
+    const checkAndAppend = (child: any) => {
+      if (
+        typeof child === "function" ||
+        isPlainObject(child) ||
+        Array.isArray(child)
+      ) {
+        throw new RectorError(
+          "[At Fragment]: Functions, Objects and Arrays are not allowed as children."
+        );
+      }
+
+      if (typeof child === "string" || typeof child === "number") {
+        child = document.createTextNode(String(child));
+      }
+      container.appendChild(child);
+    };
+
     if (Array.isArray(children)) {
-      children.forEach((child) => container.appendChild(child));
+      children.forEach((child) => checkAndAppend(child));
     } else if (children) {
-      container.appendChild(children);
+      checkAndAppend(children);
     }
     return container;
   }
@@ -395,17 +407,16 @@ class RectorJS {
   }
 
   public async renderApp() {
-    const data = await this.navigation.resolveRoute();
-    console.log("data: ", data);
+    const app = await this.navigation.resolveRoute();
 
-    if (!data) return;
+    if (!app) return;
 
     const body = document.querySelector("body");
     body.innerHTML = "";
 
     try {
       this.scopeStack.push(this.getComponent(GLOBAL));
-      body.append(this.jsx(data.render, {}));
+      body.append(this.jsx(app, {}));
       this.scopeStack.pop();
       this.runMicrotasks();
       this.runEffectQueue();
@@ -614,17 +625,17 @@ class RectorJS {
   }
 
   public map(config: {
-    stateName: string;
+    data: string;
     render: (item: any, index: number) => HTMLElement;
     keyExtractor?: (item: any, index: number) => string | number;
   }) {
-    const { stateName: sn, render, keyExtractor } = config;
+    const { data, render, keyExtractor } = config;
     const loopBlockId = `loop:${this.blockId++}`;
     this.activeBlock()?.loopIds.push(loopBlockId);
 
     const component = this.activeComponent();
     const SCOPE = component.id;
-    let { stateKeys } = this.mapStateKeys(sn, component);
+    let { stateKeys } = this.mapStateKeys(data, component);
     let stateName = stateKeys[0];
     let crrComponent = component;
     const splittedState = stateName.split(":");
@@ -1458,19 +1469,19 @@ class RectorJS {
 
   private parseChildren<K extends keyof HTMLElementTagNameMap>(
     elem: HTMLElementTagNameMap[K],
-    children: HTMLElement[]
+    children: (HTMLElement | DocumentFragment)[]
   ) {
     const component = this.activeComponent();
     const SCOPE = component.id;
     for (let [idx, child] of children.entries()) {
-      if (
-        typeof child === "function" ||
-        isPlainObject(child) ||
-        Array.isArray(child)
-      ) {
+      if (typeof child === "function" || isPlainObject(child)) {
         throw new RectorError(
-          "Functions, Objects and Arrays are not allowed as children"
+          "Functions and Objects are not allowed as children."
         );
+      }
+
+      if (Array.isArray(child)) {
+        child = this.fragment({ children: child });
       }
 
       if (typeof child === "string") {

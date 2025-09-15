@@ -14,6 +14,8 @@ const fruitcolormap = {
   Lemon: "yellow",
 };
 
+const staticCards = ["Watermelon", "Lemon"];
+
 function MapCard({ item }) {
   return (
     <E.div class="p-3" style={{ backgroundColor: fruitcolormap[item] }}>
@@ -40,12 +42,17 @@ function Test() {
           onTrueRender={() => (
             // <E.div>
             <RectorMap
-              stateName="Welcome.list"
+              data="Welcome.list"
               render={(item) => <MapCard item={item} />}
             />
             // </E.div>
           )}
         />
+
+        {staticCards.map((item) => (
+          <MapCard item={item} />
+        ))}
+
         <E.span>1</E.span>
       </E.div>
     </>
