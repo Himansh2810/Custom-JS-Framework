@@ -1,15 +1,15 @@
 import {
   Rector,
-  Layout,
-  Routes,
-  ProtectedRoutes,
+  createLayoutRoutes,
+  defineRoutes,
+  setProtectedRoutes,
   Elements as E,
   Query,
 } from "./rector-js";
 import { Login, SignUp } from "./src/auth/login.js";
 import { Navbar, Footer } from "./src/components/Navbar.js";
 import { Products, Welcome } from "./src/pages/index.js";
-import ErrorPage from "./src/components/ErrorPage.js";
+import NotFoundPage from "./src/components/NotFoundPage.js";
 import axios from "axios";
 
 Query.context = {
@@ -23,7 +23,13 @@ Query.context = {
   },
 };
 
-const ProductPageLayout = Layout(
+Rector.setErrorBoundary((error) => (
+  <E.div class="text-rose-400 h-screen bg-gray-900 p-4">
+    ERROR: {error.message}
+  </E.div>
+));
+
+const ProductPageLayout = createLayoutRoutes(
   {
     "/": Welcome,
     "/products": Products,
@@ -38,20 +44,21 @@ const ProductPageLayout = Layout(
   )
 );
 
-Routes({
+defineRoutes({
   "/login": Login,
   "/signup": SignUp,
   "/": ProductPageLayout,
-  "/*": ErrorPage,
+  "/*": NotFoundPage,
 });
 
-ProtectedRoutes({
-  routes: ["/", "/products"],
-  grantAccess: () => {
-    const accessToken = localStorage.getItem("accessToken");
-    return !!accessToken;
-  },
-  onFallback: () => Rector.navigate("/login"),
+setProtectedRoutes(["/", "/products/*"], () => {
+  const accessToken = localStorage.getItem("accessToken");
+  if (!accessToken) {
+    Rector.navigate("/login");
+    return false;
+  }
+
+  return true;
 });
 
 Rector.renderApp();

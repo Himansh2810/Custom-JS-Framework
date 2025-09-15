@@ -8,58 +8,53 @@ import {
   getRouterParams,
 } from "../../rector-js";
 
-function Test() {
-  initState("count", 0);
-  return <E.div>[[Products.loading]]+[[count]]</E.div>;
-}
-
 function Products() {
-  const setLoading = initState("loading", false);
+  const setLoading = initState("loading", true);
   const setProducts = initState("products", []);
-  const apiCaller = initState("caller", true);
+
   const { id: productId } = getRouterParams();
 
   const addProduct = async () => {
-    // let data = await Query.get(
-    //   `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
-    //   {
-    //     cache: 30,
-    //   }
-    // );
+    let data = await Query.get(
+      `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
+      {
+        cache: 30,
+      }
+    );
 
-    let data = [
-      {
-        id: 0,
-        title: "Samsung S25",
-        category: "Mobile",
-        price: "699",
-        rating: { rate: 4.3 },
-      },
-      {
-        id: 1,
-        title: "Samsung S25",
-        category: "Mobile",
-        price: "699",
-        rating: { rate: 4.3 },
-      },
-      {
-        id: 2,
-        title: "Samsung S25",
-        category: "Mobile",
-        price: "699",
-        rating: { rate: 4.3 },
-      },
-    ];
+    // let data = [
+    //   {
+    //     id: 0,
+    //     title: "Samsung S25",
+    //     category: "Mobile",
+    //     price: "699",
+    //     rating: { rate: 4.3 },
+    //   },
+    //   {
+    //     id: 1,
+    //     title: "Samsung S25",
+    //     category: "Mobile",
+    //     price: "699",
+    //     rating: { rate: 4.3 },
+    //   },
+    //   {
+    //     id: 2,
+    //     title: "Samsung S25",
+    //     category: "Mobile",
+    //     price: "699",
+    //     rating: { rate: 4.3 },
+    //   },
+    // ];
 
     if (!Array.isArray(data)) {
       data = [data];
     }
 
     setProducts(data);
-    // setLoading(false);
+    setLoading(false);
   };
 
-  setEffect(addProduct, ["caller"]);
+  setEffect(addProduct);
 
   return (
     <E.div class="p-2">
@@ -67,12 +62,6 @@ function Products() {
         <E.h1 class="text-white text-[36px] px-2  border-b-2 w-fit rounded-b-md border-sky-600">
           Products
         </E.h1>
-        <E.button
-          onclick={() => apiCaller((prev) => !prev)}
-          class="bg-blue-500 p-2"
-        >
-          Refresh
-        </E.button>
         <E.button
           class="mt-4 block bg-sky-500 p-2 rounded-md cursor-pointer"
           onclick={() =>
@@ -118,7 +107,8 @@ function ProductCard({ product }) {
       <E.img
         src={product?.image}
         class="w-full h-48"
-        style={{ objectFit: "cover" }}
+        style={{ objectFit: "cover", height: "60px", width: "60px" }}
+        alt="product"
       />
       <E.h1 class="text-[20px] word-break mt-2">
         <E.span class="bg-sky-900 text-[14px] capitalize px-2 py-1 rounded-full mr-2">
