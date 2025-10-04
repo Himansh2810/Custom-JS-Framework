@@ -1,3 +1,5 @@
+import { JSXExpressionObj } from "./types";
+
 class BiMap {
   private fwd = {};
   private bwd = {};
@@ -200,6 +202,17 @@ function isPlainObject(obj: any): boolean {
   return typeof obj === "object" && obj !== null && obj.constructor === Object;
 }
 
+function isJSXExpressionObj(x: any): x is JSXExpressionObj {
+  return (
+    x != null &&
+    typeof x === "object" &&
+    "expression" in x &&
+    typeof x.expression === "string" &&
+    "vars" in x &&
+    Array.isArray(x.vars)
+  );
+}
+
 function isCamelCase(str: string) {
   return str[0] === str[0].toUpperCase();
 }
@@ -259,4 +272,5 @@ export {
   isCamelCase,
   styleObjectToCss,
   removeValueFromObject,
+  isJSXExpressionObj,
 };

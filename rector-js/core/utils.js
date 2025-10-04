@@ -173,6 +173,14 @@ function isComponentFunction(fn, callback) {
 function isPlainObject(obj) {
     return typeof obj === "object" && obj !== null && obj.constructor === Object;
 }
+function isJSXExpressionObj(x) {
+    return (x != null &&
+        typeof x === "object" &&
+        "expression" in x &&
+        typeof x.expression === "string" &&
+        "vars" in x &&
+        Array.isArray(x.vars));
+}
 function isCamelCase(str) {
     return str[0] === str[0].toUpperCase();
 }
@@ -213,4 +221,4 @@ function removeValueFromObject(o, target) {
     }
     return o;
 }
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, removeValueFromObject, };
+export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, removeValueFromObject, isJSXExpressionObj, };

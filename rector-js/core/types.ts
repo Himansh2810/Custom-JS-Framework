@@ -15,13 +15,23 @@ type RectorElements = {
 
 type StateUseObj = {
   element: HTMLElement;
-  pos?: number;
-  rawString?: string;
-  cmpId?: string;
+  pos: number;
+  rawExp: JSXExpressionObj;
+  cmpId: string;
 };
 
 type StateUsage = {
   [state: string]: StateUseObj[];
+};
+
+type AttrUseObj = {
+  element: HTMLElement;
+  rawExp: JSXExpressionObj;
+  attribute: string;
+};
+
+type AttrsUsage = {
+  [state: string]: AttrUseObj[];
 };
 
 type StateLoopBlockConfig = {
@@ -57,13 +67,12 @@ type RectorElementRef<T extends keyof HTMLElementTagNameMap> = {
   [refName: string]: HTMLElementTagNameMap[T];
 };
 interface IfBlockConfig {
-  exp: string;
+  rawExp: JSXExpressionObj;
   trueElement?: () => HTMLElement | ChildNode;
   falseElement?: () => HTMLElement | ChildNode;
-  placeholder?: () => Range;
+  placeholder?: Range;
   cmpId?: string;
   childBlock?: string;
-  stateData?: string[];
 }
 
 interface LoopBlockConfig {
@@ -78,13 +87,55 @@ interface LoopBlockConfig {
   stateData?: string[];
 }
 
+type EffectFunction = () =>
+  | (() => void)
+  | void
+  | Promise<void>
+  | Promise<() => void>;
+
 interface EffectConfig {
   [id: string]: {
     depends: boolean;
     scope: string;
     extDeps: string[];
-    fn: () => (() => void) | void;
+    fn: EffectFunction;
   };
+}
+
+type ElementInterceptors = {
+  [Tag in keyof HTMLElementTagNameMap]?: (
+    el: HTMLElementTagNameMap[Tag]
+  ) => void;
+};
+
+type ComponentElement = () => HTMLElement | ChildNode;
+
+type RouteKeyPair = {
+  [path: string]: ComponentElement | RouteConfig;
+};
+
+type MetaConfig = {
+  meta?: { description?: string };
+  documentTitle?: string;
+};
+
+type RouteConfig = {
+  layout?: (child: ComponentElement) => HTMLElement;
+  children?: RouteKeyPair;
+  component?: ComponentElement;
+  config?: MetaConfig;
+};
+
+type Route =
+  | ComponentElement
+  | {
+      lid?: number | number[];
+      component: ComponentElement;
+      config?: MetaConfig;
+    };
+interface JSXExpressionObj {
+  expression: string;
+  vars: (string | string[])[];
 }
 
 // type RectorRefs = {
@@ -105,7 +156,15 @@ export {
   RectorElementRef,
   IfBlockConfig,
   LoopBlockConfig,
-  // RectorRefs,
+  ElementInterceptors,
+  Route,
+  RouteKeyPair,
+  RouteConfig,
+  JSXExpressionObj,
+  MetaConfig,
+  EffectFunction,
+  ComponentElement,
+  AttrsUsage,
 };
 
 // in future

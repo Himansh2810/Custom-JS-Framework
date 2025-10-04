@@ -10,12 +10,15 @@ module.exports = {
     filename: "bundle.js",
   },
   devServer: {
+    client: {
+      overlay: false, // ⬅️  This disables the red error overlay
+    },
     historyApiFallback: {
       index: "/",
     },
     static: path.join(__dirname, "public"),
     port: 3000,
-    open: true,
+    open: false,
   },
   plugins: [
     new HtmlWebpackPlugin({
@@ -48,6 +51,18 @@ module.exports = {
                   importSource: "rector-js", // adjust if needed
                 },
               ],
+            ],
+            plugins: [
+              path.resolve(__dirname, "plugins/babel-plugin-jsx-vars.js"), // 👈 add plugin here
+              path.resolve(
+                __dirname,
+                "plugins/babel-plugin-props-intercept.js"
+              ),
+              path.resolve(__dirname, "plugins/babel-plugin-dynamic-attrs.js"),
+              // path.resolve(
+              //   __dirname,
+              //   "plugins/babel-plugin-state-detection.js"
+              // ),
             ],
           },
         },

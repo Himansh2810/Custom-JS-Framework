@@ -54,3 +54,231 @@ IS_3:Make Layout Works better.
 /{{\s*([^}]+)\s*}}/g        /\[\[\s*([^\]]+)\s*\]\]/g
 
 tsc rector.ts --target ES6
+
+
+function patch<T>(
+  targetClass: { prototype: T },
+  methods: {
+    [K in keyof T]?: (this: T & { _super: T[K] }, ...args: any[]) => any;
+  }
+) {
+  for (const key of Object.keys(methods) as Array<keyof T>) {
+    const original = targetClass.prototype[key] as any;
+    targetClass.prototype[key] = function (...args: any[]) {
+      const tmp = (this as any)._super;
+      (this as any)._super = original.bind(this);
+      try {
+        return (methods[key] as Function).apply(this, args);
+      } finally {
+        (this as any)._super = tmp;
+      }
+    } as any;
+  }
+}
+
+const patchRector = (methods: Parameters<typeof patch>[1]) =>
+  patch(RectorJS, methods);
+
+patchRector({
+  createElement(...args) {
+    const el = this._super(...args);
+    console.log("el: ", args[0], el.style.backgroundColor);
+    const oldVal = el.getAttribute("class");
+    el.setAttribute("class", oldVal + " text-white text-[18px]");
+    return el;
+  },
+});
+
+
+
+ private parseStateVars(
+    str: string,
+    activeComponent: Component,
+    validateExpr = true
+  ) {
+    let matchStr: string[] | null = null;
+    let isPsDefined = true;
+    let parsedStr = str.replace(
+      /\[\[\s*([^\]]+)\s*\]\]/g,
+      (_, keyExpression) => {
+        keyExpression = keyExpression?.trim();
+
+        if (keyExpression) {
+          if (validateExpr) {
+            this.validateExpression(keyExpression);
+          }
+
+          let { scopeState, stateKeys } = this.mapStateKeys(
+            keyExpression,
+            activeComponent
+          );
+
+          matchStr = stateKeys;
+
+          try {
+            const fn = new Function(
+              "State",
+              `with(State) {return ${keyExpression}}`
+            );
+
+            return fn({ ...activeComponent.state, ...scopeState });
+          } catch (error) {
+            throw new RectorError(error?.message);
+          }
+        } else {
+          isPsDefined = false;
+        }
+      }
+    );
+
+    return { parsedStr: isPsDefined ? parsedStr : "", matchStr };
+  }
+
+
+  private mapStateKeys(expression: string, activeComponent: Component) {
+    let scopeState = {};
+    let extractedKeys = this.extractStateKeys(expression);
+
+    let stateKeys = extractedKeys.map((stateKey) => {
+      const splittedKey = stateKey.split(".");
+
+      if (splittedKey.length > 1) {
+        const [firstKey, stateName] = splittedKey;
+        if (firstKey === "$") {
+          const globalComponent = this.getComponent(GLOBAL);
+          this.checkStateValid(globalComponent, stateName);
+          scopeState[firstKey] = globalComponent.state;
+          return `${GLOBAL}:${stateName}`;
+        }
+
+        if (this.componentNames.has(firstKey)) {
+          if (firstKey === activeComponent.name) {
+            throw new Error(
+              `Invalid self-reference: Use "${stateName}" instead of "${firstKey}.${stateName}" inside component "${firstKey}".`
+            );
+          }
+          let parentCmp = this.getComponent(activeComponent.parentId);
+          while (parentCmp) {
+            if (parentCmp.id === GLOBAL) {
+              throw new RectorError(
+                `Can't access child component '${firstKey}' in '${activeComponent.name}' component.`
+              );
+            }
+
+            if (parentCmp.name === firstKey) {
+              break;
+            }
+
+            parentCmp = this.getComponent(parentCmp.parentId);
+          }
+
+          this.checkStateValid(parentCmp, stateName);
+          scopeState[firstKey] = parentCmp.state;
+          return `${parentCmp.id}:${stateName}`;
+        } else {
+          this.checkStateValid(activeComponent, firstKey);
+          return firstKey;
+        }
+      }
+
+      this.checkStateValid(activeComponent, stateKey);
+
+      return stateKey;
+    });
+
+    return { scopeState, stateKeys };
+  }
+
+
+  private extractStateKeys(expr: string) {
+    const dynamicExpr = expr.trim().replace(/(['"`])(?:\\\1|.)*?\1/g, "");
+
+    const matches = [
+      ...dynamicExpr.matchAll(/([$a-zA-Z_][$\w]*(?:\.[a-zA-Z_$][\w$]*)*)/g),
+    ];
+
+    const identifiers = matches.map((m) => m[1]);
+
+    return [...new Set(identifiers)];
+  }
+
+
+  private configureState<V>(
+    stateName: string,
+    value: V,
+    scope: string
+  ): [V, (val: V | ((prev: V) => V)) => void] {
+    const component = this.getComponent(scope);
+
+    if (typeof stateName !== "string") {
+      throw new RectorError("State name must be of string type.");
+    }
+
+    stateName = stateName.trim();
+
+    if (!stateName) {
+      throw new RectorError("State name should be a valid string");
+    }
+
+    if (stateName === "$") {
+      throw new RectorError(
+        `Restricted state name '${stateName}': State name '$' is reserved in RectorJS for Global state context, use another state name.`
+      );
+    }
+
+    if (this.componentNames.has(stateName)) {
+      if (stateName === component.name) {
+        throw new RectorError(
+          `Restricted state name: State "${stateName}" conflicts with component name "${stateName}".Please choose a different state name.`
+        );
+      }
+      throw new RectorError(
+        `Restricted state name: State '${stateName}' conflicts with parent/ancestor component name "${stateName}".State names cannot be the same as any parent/ancestor component name.`
+      );
+    }
+
+    if (!/^[$A-Z_a-z][$\w]*$/.test(stateName)) {
+      throw new RectorError(
+        `Invalid state name '${stateName}': State names must start with a letter, $, or _ and only contain alphanumeric characters, $, or _.`
+      );
+    }
+
+    if (reservedJSKeys.has(stateName)) {
+      throw new RectorError(
+        `Invalid state name '${stateName}': JavaScript keywords are not allowed as State name.`
+      );
+    }
+
+    if (Object.hasOwn(component.state, stateName)) {
+      const isGlobalCmp = scope === GLOBAL;
+      throw new RectorError(
+        `${
+          isGlobalCmp ? "Global" : ""
+        } State '${stateName}' is already declared in this ${
+          isGlobalCmp ? "App" : `'${component.name}' Component`
+        }.`
+      );
+    }
+
+    component.state[stateName] = value;
+
+    return [
+      value,
+      (val: V | ((prev: V) => V)) => {
+        const oldValue: V = component.state[stateName];
+
+        const newVal: V =
+          typeof val === "function" ? (val as (prev: V) => V)(oldValue) : val;
+
+        component.state[stateName] = newVal;
+        // this.State[scope][stateName] = newVal;
+
+        if (!isEqual(oldValue, newVal)) {
+          this.reRender(stateName, oldValue, scope);
+          this.runMicrotasks();
+          this.runEffectQueue();
+          this.runEffects(component, stateName);
+        }
+      },
+    ];
+  }

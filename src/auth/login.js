@@ -1,20 +1,21 @@
 import {
   Rector,
-  initGlobalState,
-  initState,
+  defineGlobalState,
+  defineState,
   globalState,
   Elements as E,
+  componentState,
 } from "../../rector-js";
 import { isAlreadyLogin } from "../utils";
 
 const LoginUtils = () => {
-  const state = Rector.getComponentState();
-  const setLoginData = initState("loginData", {
+  const state = componentState();
+  const setLoginData = defineState("loginData", {
     username: "",
     password: "",
   });
 
-  const setErrorMessage = initState("errorMes", "");
+  const setErrorMessage = defineState("errorMes", "");
 
   const handleLogin = () => {
     const loginData = state.loginData;
@@ -79,7 +80,7 @@ function Login() {
   );
 }
 
-const setGlobUSer = initGlobalState("user", {
+const setGlobUSer = defineGlobalState("user", {
   name: "",
   username: "",
   password: "",
@@ -90,7 +91,7 @@ function SignUp() {
     Rector.navigate("/");
     return;
   }
-  const setUSerData = initState("data", {
+  const setUSerData = defineState("data", {
     name: "",
     username: "",
     password: "",
