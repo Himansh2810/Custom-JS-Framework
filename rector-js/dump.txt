@@ -282,3 +282,811 @@ patchRector({
       },
     ];
   }
+
+
+  /////
+
+  i can have any expression string like , "a + b.c - d().e"
+
+it has config like dynamic var : ['a'] , static var: { b : { c : 10} , d : () =>({e:8})}
+
+then i want it to evalute expression but keep dynamic vars as its it.
+
+means, "a + b.c - d().e" =>return  "a + 2" // b.c= 10 , d().e = 8,
+
+similar,
+
+ "(b & c) || a" , dynamicvar:['b','c'] , staticvar: {a :false} ,
+return "(b & c) || false",
+
+the expression can be anything (more precisely , anything that can be written in jsx {} curly braces),
+
+make the approach more memory & time optimized as much as possible , 
+
+function print(...x){console.log(...x)}
+
+function partialEval(expr, { dynamicVars = [], staticVars = {} }) {
+  // Helper to check if token is dynamic
+  const isDynamic = (name) => dynamicVars.includes(name);
+
+  // Replace static values in expression
+  const replacedExpr = expr.replace(/\b[a-zA-Z_]\w*(?:\.\w+|\(\))*/g, (match) => {
+     print(match)
+    const root = match.split(/[\.\(]/)[0];
+    print(root)
+    if (isDynamic(root)) return match; // leave dynamic
+    try {
+      // Evaluate static value safely
+      const value = Function(...Object.keys(staticVars), `return ${match}`)(...Object.values(staticVars));
+      // For strings, wrap in quotes to avoid JS concat issues
+      if (typeof value === 'string') return JSON.stringify(value);
+      return value;
+    } catch {
+      return match; // fallback if evaluation fails
+    }
+  });
+
+  return replacedExpr;
+}
+
+console.log(
+  partialEval("a + b.c", {
+    dynamicVars: ["a"],
+    staticVars: { b: { c: 10 }, d: () => ({ e: 8 }) }
+  })
+); 
+// "a + 10 - 8" ✅
+// '"hello" + b' ✅
+
+
+
+
+
+ function tokenizeExpression(expr) {
+    const tokens = [];
+    let current = "";
+    let depth = 0;
+
+    // Include all major operators including new ones
+    const operators = [
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      ">",
+      "<",
+      "=",
+      "!",
+      "&",
+      "|",
+      "^",
+      "?",
+      ":",
+      ",",
+    ];
+    const multiOps = ["&&", "||", "==", "!=", ">=", "<=", "?.", "??", "=>"];
+    
+    const tripleOps = ['!==', '===','...']
+
+    const flush = () => {
+      if (current.trim() !== "") tokens.push(current.trim());
+      current = "";
+    };
+
+    for (let i = 0; i < expr.length; i++) {
+      const ch = expr[i];
+      const next = expr[i + 1];
+      const next2 = expr[i + 2];
+      const triple = ch + next + next2;
+      const combo = ch + next;
+
+      // string literal handling (with escaping)
+      if (ch === '"' || ch === "'") {
+        const quote = ch;
+        current += ch;
+        i++;
+        while (i < expr.length) {
+          const c = expr[i];
+          current += c;
+          if (c === "\\") {
+            current += expr[++i] || "";
+            continue;
+          }
+          if (c === quote) break;
+          i++;
+        }
+        continue;
+      }
+
+      // Parenthesis handling
+      if (ch === "(") {
+        if (current.trim() && /[A-Za-z0-9_\]\)]$/.test(current)) {
+          current += ch;
+          depth++;
+        } else {
+          flush();
+          tokens.push("(");
+        }
+        continue;
+      }
+
+      if (ch === ")") {
+        if (depth > 0) {
+          current += ch;
+          depth--;
+        } else {
+          flush();
+          tokens.push(")");
+        }
+        continue;
+      }
+
+      if (ch === "[" || ch === "]") {
+        current += ch;
+        continue;
+      }
+
+      // handle 3-char ops (currently only ...)
+      if (tripleOps.includes(triple)) {
+        flush();
+        tokens.push(triple);
+        i += 2;
+        continue;
+      }
+
+      // handle 2-char ops (includes ?. and ??)
+      if (multiOps.includes(combo)) {
+        if (combo === "?.") {
+          current += combo;
+        } else {
+          flush();
+          tokens.push(combo);
+        }
+        i++;
+        continue;
+      }
+
+      // single-char ops
+      if (operators.includes(ch)) {
+        flush();
+        tokens.push(ch);
+        continue;
+      }
+
+      if (/\s/.test(ch)) {
+        flush();
+        continue;
+      }
+
+      current += ch;
+    }
+
+    flush();
+    return tokens;
+  }
+
+  function evaluateExpression(expr, states, vars) {
+     if(!states || !states.length){
+         let res = '';
+         try {
+          const value = Function(
+            ...Object.keys(vars),
+            `return ${expr}`
+          )(...Object.values(vars));
+          if (typeof value === "string") res = JSON.stringify(value);
+          res = String(value);
+        } catch (e) {
+          console.error(e);
+          res = expr;
+        }
+        
+        console.log("::",res)
+        
+        return;
+     }
+      
+    const expArr = tokenizeExpression(expr);
+    console.log("expArr: ", expArr);
+
+    let res = expArr
+      .map((token) => {
+        // Ignore parentheses & operators
+        if (/^[+\-*/%><=!&|^?:()]+$/.test(token)) return token;
+
+        // if it's clearly a number or literal, keep as is
+        if (/^['"`0-9]/.test(token)) return token;
+
+        // Handle nested dynamic like user.name, user.x.y, arr[0].x
+        const isDynamic = states.some((v) => {
+          // match start or bracket/period boundary
+          return (
+            token === v ||
+            token.startsWith(v + ".") ||
+            token.startsWith(v + "?.") ||
+            token.startsWith(v + "[")
+          );
+        });
+        if (isDynamic) return token;
+
+        // Try to evaluate static
+        try {
+          const value = Function(
+            ...Object.keys(vars),
+            `return ${token}`
+          )(...Object.values(vars));
+          
+          if (typeof value === "string") return JSON.stringify(value);
+          return String(value);
+        } catch (e) {
+          console.error(e);
+          return token;
+        }
+      })
+      .join(" ");
+     
+    console.log(">>",res);
+  }
+  
+  /*
+  
+fn()
+sum(a, b)
+getUser().name
+x => x + 1
+(a, b) => a + b
+() => 42
+  
+  
+  */
+  
+  
+  evaluateExpression('a?.name ? "ok" : "not ok"',[],{a:null})
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+
+let res = expArr
+      .reduce((acc,token) => {
+        // Try to evaluate static
+        const isState = states.some((d) => (d === token || token.startsWith(d + '.') || token.startsWith(d + '?.') || token.includes(d)));
+        console.log('token: ',acc,token, isState);
+        if(isState) {
+            acc += token + ' ';
+            return acc;
+        }
+        if(!missed && /^[+\-*/%><=!&|^?:()]+$/.test(token)) {
+            acc += token + ' ';
+            return acc;
+        };
+        token = missed + token;
+        console.log('jointToken: ',token);
+        try {
+          let value = Function(
+            ...Object.keys(vars),
+            `return ${token}`
+          )(...Object.values(vars));
+          missed = '';
+          console.log('value: ',value);
+          if(token.startsWith("`${")){
+              value = `"${value}"`
+          }
+          acc += value + ' ';
+          return acc;
+        } catch (e) {
+        //   console.error(e);
+          missed = token;
+          return acc;
+        }
+      },"");
+console.log(res)
+
+
+
+
+
+
+
+
+
+  // private tokenizeExpression(expr: string) {
+  //   const tokens: string[] = [];
+  //   let current = "";
+  //   let depth = 0; // for tracking parentheses in identifiers like d().e
+  //   const operators = [
+  //     "+",
+  //     "-",
+  //     "*",
+  //     "/",
+  //     "%",
+  //     ">",
+  //     "<",
+  //     "=",
+  //     "!",
+  //     "&",
+  //     "|",
+  //     "^",
+  //     "?",
+  //     ":",
+  //   ];
+
+  //   const flush = () => {
+  //     if (current.trim() !== "") tokens.push(current.trim());
+  //     current = "";
+  //   };
+
+  //   for (let i = 0; i < expr.length; i++) {
+  //     const ch = expr[i];
+  //     const next = expr[i + 1];
+
+  //     // Handle string literals (skip inside)
+  //     if (ch === '"' || ch === "'") {
+  //       const quote = ch;
+  //       current += ch;
+  //       i++;
+  //       while (i < expr.length && expr[i] !== quote) {
+  //         current += expr[i++];
+  //       }
+  //       current += quote;
+  //       continue;
+  //     }
+
+  //     // Parentheses control
+  //     if (ch === "(") {
+  //       if (current.trim() && /[A-Za-z0-9_\]\)]$/.test(current)) {
+  //         // function call or property chain
+  //         current += ch;
+  //         depth++;
+  //       } else {
+  //         flush();
+  //         tokens.push("(");
+  //       }
+  //       continue;
+  //     }
+  //     if (ch === ")") {
+  //       if (depth > 0) {
+  //         current += ch;
+  //         depth--;
+  //       } else {
+  //         flush();
+  //         tokens.push(")");
+  //       }
+  //       continue;
+  //     }
+
+  //     // Array brackets
+  //     if (ch === "[" || ch === "]") {
+  //       current += ch;
+  //       continue;
+  //     }
+
+  //     // Detect multi-char operators like &&, ||, >=, <=, ==
+  //     if (operators.includes(ch)) {
+  //       const combo = ch + next;
+  //       if (
+  //         operators.includes(next) &&
+  //         ["&&", "||", "==", "!=", ">=", "<="].includes(combo)
+  //       ) {
+  //         flush();
+  //         tokens.push(combo);
+  //         i++;
+  //         continue;
+  //       }
+  //       flush();
+  //       tokens.push(ch);
+  //       continue;
+  //     }
+
+  //     // Comma or dot as part of object access
+  //     if (ch === "." && /[A-Za-z0-9_$]/.test(next)) {
+  //       current += ch;
+  //       continue;
+  //     }
+
+  //     // Whitespace → flush
+  //     if (/\s/.test(ch)) {
+  //       flush();
+  //       continue;
+  //     }
+
+  //     current += ch;
+  //   }
+
+  //   flush();
+  //   return tokens;
+  // }
+
+  // private tokenizeExpression(expr: string) {
+  //   const tokens: string[] = [];
+  //   let current = "";
+  //   let depth = 0;
+
+  //   // Include all major operators including new ones
+  //   const operators = [
+  //     "+",
+  //     "-",
+  //     "*",
+  //     "/",
+  //     "%",
+  //     ">",
+  //     "<",
+  //     "=",
+  //     "!",
+  //     "&",
+  //     "|",
+  //     "^",
+  //     "?",
+  //     ":",
+  //     ",",
+  //   ];
+  //   const multiOps = ["&&", "||", "==", "!=", ">=", "<=", "?.", "??", "=>"];
+
+  //   const tripleOps = ["!==", "===", "..."];
+
+  //   const flush = () => {
+  //     if (current.trim() !== "") tokens.push(current.trim());
+  //     current = "";
+  //   };
+
+  //   for (let i = 0; i < expr.length; i++) {
+  //     const ch = expr[i];
+  //     const next = expr[i + 1];
+  //     const next2 = expr[i + 2];
+  //     const triple = ch + next + next2;
+  //     const combo = ch + next;
+
+  //     // string literal handling (with escaping)
+  //     if (ch === '"' || ch === "'") {
+  //       const quote = ch;
+  //       current += ch;
+  //       i++;
+  //       while (i < expr.length) {
+  //         const c = expr[i];
+  //         current += c;
+  //         if (c === "\\") {
+  //           current += expr[++i] || "";
+  //           continue;
+  //         }
+  //         if (c === quote) break;
+  //         i++;
+  //       }
+  //       continue;
+  //     }
+
+  //     // Parenthesis handling
+  //     if (ch === "(") {
+  //       if (current.trim() && /[A-Za-z0-9_\]\)]$/.test(current)) {
+  //         current += ch;
+  //         depth++;
+  //       } else {
+  //         flush();
+  //         tokens.push("(");
+  //       }
+  //       continue;
+  //     }
+
+  //     if (ch === ")") {
+  //       if (depth > 0) {
+  //         current += ch;
+  //         depth--;
+  //       } else {
+  //         flush();
+  //         tokens.push(")");
+  //       }
+  //       continue;
+  //     }
+
+  //     if (ch === "[" || ch === "]") {
+  //       current += ch;
+  //       continue;
+  //     }
+
+  //     // handle 3-char ops (currently only ...)
+  //     if (tripleOps.includes(triple)) {
+  //       flush();
+  //       tokens.push(triple);
+  //       i += 2;
+  //       continue;
+  //     }
+
+  //     // handle 2-char ops (includes ?. and ??)
+  //     if (multiOps.includes(combo)) {
+  //       if (combo === "?.") {
+  //         current += combo;
+  //       } else {
+  //         flush();
+  //         tokens.push(combo);
+  //       }
+  //       i++;
+  //       continue;
+  //     }
+
+  //     // single-char ops
+  //     if (operators.includes(ch)) {
+  //       flush();
+  //       tokens.push(ch);
+  //       continue;
+  //     }
+
+  //     if (/\s/.test(ch)) {
+  //       flush();
+  //       continue;
+  //     }
+
+  //     current += ch;
+  //   }
+
+  //   flush();
+  //   return tokens;
+  // }
+
+  // private evaluateExpression(expr: string, states: string[], vars: any) {
+  //   if (!states || !states.length) {
+  //     try {
+  //       const value = Function(
+  //         ...Object.keys(vars),
+  //         `return ${expr}`
+  //       )(...Object.values(vars));
+  //       return value;
+  //     } catch (e) {
+  //       console.error(e);
+  //       return expr;
+  //     }
+  //   }
+
+  //   const expArr = this.tokenizeExpression(expr);
+  //   console.log("expArr: ", expArr);
+
+  //   let res = expArr
+  //     .map((token) => {
+  //       // Ignore parentheses & operators
+  //       if (/^[+\-*/%><=!&|^?:()]+$/.test(token)) return token;
+
+  //       // if it's clearly a number or literal, keep as is
+  //       if (/^['"`0-9]/.test(token)) return token;
+
+  //       // Handle nested dynamic like user.name, user.x.y, arr[0].x
+  //       const isDynamic = states.some((v) => {
+  //         // match start or bracket/period boundary
+  //         return (
+  //           token === v ||
+  //           token.startsWith(v + ".") ||
+  //           token.startsWith(v + "?.") ||
+  //           token.startsWith(v + "[") ||
+  //           token.includes(v)
+  //         );
+  //       });
+  //       if (isDynamic) return token;
+
+  //       // Try to evaluate static
+  //       try {
+  //         const value = Function(
+  //           ...Object.keys(vars),
+  //           `return ${token}`
+  //         )(...Object.values(vars));
+  //         return value;
+  //       } catch (e) {
+  //         console.error(e);
+  //         return token;
+  //       }
+  //     })
+  //     .join(" ");
+
+  //   console.log(res);
+  //   return res;
+  // }
+
+
+
+  function calls
+
+props
+
+hook/state values
+
+environment / browser APIs
+
+destructuring from runtime sources
+
+
+
+
+
+
+/// ************ \\\\
+
+FASTER APPROACH #1 — “Direct JS Evaluation with a Proxy Sandbox” (Zero Parsing)
+
+This is MUCH faster because:
+
+No parse
+
+No AST
+
+No walking tree
+
+No rebuild
+
+No custom evaluator
+
+Instead, you simply execute the expression in a sandbox environment where:
+
+Static values resolve normally
+
+Dynamic identifiers are replaced with dummy placeholders
+
+Accesses to undefined dynamic values return a special marker object
+
+Optional chaining behaves automatically
+
+JS engine resolves .length, .toString() etc.
+
+This method basically uses the JS engine to do all your work for you.
+
+✔ Way faster
+✔ No parsing overhead
+✔ No AST building
+✔ No recursion
+✔ No chain analysis
+✔ No string rebuilding
+✔ Full JS semantics “for free”
+
+You simply give JavaScript:
+
+Static environment:
+
+{ data: { name: "joe" } }
+
+
+Dynamic environment:
+
+{ count: DYNAMIC_PLACEHOLDER }
+
+
+Run:
+
+count + data.name.length
+
+
+JS engine evaluates:
+
+data.name.length → 3
+
+count remains placeholder
+
+Final result becomes:
+
+placeholder + 3
+
+
+Then you convert placeholder back to "count".
+
+🚀 FASTER APPROACH #2 — Use JS Engine + Throw for dynamic identifiers (super clean)
+
+Even cleaner:
+
+Provide all static values inside an eval sandbox (via Proxy)
+
+Provide all dynamic identifiers as a getter that throws an exception
+
+When expression executes:
+
+Static values resolve fine
+
+JS-derived values resolve fine
+
+Any dynamic variable throws → you catch it → you know "this identifier is dynamic"
+
+Flow example:
+
+Expression:
+
+count + data.name.length
+
+
+Sandbox environment:
+
+data: static
+
+count: dynamic → getter throws "__DYNAMIC__"
+
+eval →
+
+Accessing data.name.length computes 3
+
+Accessing count throws → you catch and record "count"
+
+You replace dynamic usage with "count" and join result:
+
+"count + 3"
+
+
+This technique is used by:
+
+Vue’s compiler
+
+Svelte compiler
+
+Turbo-evaluator engines
+(even React internal DebugTools do similar tricks)
+
+✔ Almost zero work
+✔ Insanely fast
+✔ Zero AST parsing
+✔ Full JS behavior handled automatically
+✔ Very easy to batch-process 10,000 expressions
+🚀 FASTER APPROACH #3 — Precompile expression into a Function factory
+
+You can convert:
+
+count + data.name.length
+
+
+Into a reusable “partial evaluator function”:
+
+function partialEval(staticVals, dynamicVals) {
+  return dynamicVals.count + staticVals.data.name.length;
+}
+
+
+Then repeated calls are extremely fast.
+
+This is also how:
+
+Angular template compiler works
+
+Handlebars internal optimization works
+
+Many static-site engines speed up template partials
+
+✔ Best for repeated batch evaluation
+✔ JS engine optimizes the function
+✔ Zero need for your own parsing on each run
+🚀 FASTER APPROACH #4 — Build a Real Partial Evaluator (like Babel constant folding)
+
+This approach analyzes the AST once, but then:
+
+Marks each path as static or dynamic
+
+Compiles a partially evaluated expression
+
+Skips heavy work on subsequent evaluations
+
+This is what compilers do:
+
+Babel: constant folding
+
+SWC: partial evaluation
+
+Rollup: tree-shaking constant inlining
+
+Vite: compile-time expression reduction
+
+If your expressions repeat, this is extremely efficient.
+
+🔥 WHICH IS FASTEST?
+
+Benchmark order (fast → slow):
+
+1. Proxy–sandbox evaluation  (fastest)
+2. Partial-eval compiled function
+3. Static/dynamic AST tagging
+4. Your current full tokenize+compress+walk+rebuild (slowest)
+
+
+If you have MANY expressions (hundreds–thousands),
+#1 is easily 10–20× faster than what you’re doing now.

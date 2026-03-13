@@ -21,7 +21,11 @@
     "webpack-dev-server": "^5.2.2"
   },
   "dependencies": {
+    "acorn": "^8.15.0",
+    "acorn-jsx": "^5.3.2",
+    "acorn-stage3": "^4.0.0",
     "axios": "^1.10.0",
-    "comlink": "^4.4.2"
+    "comlink": "^4.4.2",
+    "escodegen": "^2.1.0"
   }
 }

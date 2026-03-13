@@ -1,11 +1,16 @@
 import { Rector } from "./core/rector";
 
-export function jsx(fn, props) {
+function jsx(fn, props) {
   return Rector.jsx(fn, props);
 }
 
-export function jsxs(fn, props) {
+function jsxs(fn, props) {
   return Rector.jsx(fn, props);
 }
+function Fragment({ children }) {
+  return Rector.fragment({ children });
+}
 
-export const Fragment = ({ children }) => Rector.fragment({ children });
+Fragment.isRectorComponent = true;
+
+export { Fragment, jsx, jsxs };

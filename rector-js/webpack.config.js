@@ -17,7 +17,7 @@ module.exports = {
       index: "/",
     },
     static: path.join(__dirname, "public"),
-    port: 3000,
+    port: 3030,
     open: false,
   },
   plugins: [
@@ -40,32 +40,43 @@ module.exports = {
       {
         test: /\.(js|jsx)$/,
         exclude: /node_modules/,
-        use: {
-          loader: "babel-loader",
-          options: {
-            presets: [
-              [
-                "@babel/preset-react",
-                {
-                  runtime: "automatic",
-                  importSource: "rector-js", // adjust if needed
-                },
+        use: [
+          {
+            loader: "babel-loader",
+            options: {
+              presets: [
+                [
+                  "@babel/preset-react",
+                  {
+                    runtime: "automatic",
+                    importSource: "rector-js", // adjust if needed
+                  },
+                ],
               ],
-            ],
-            plugins: [
-              path.resolve(__dirname, "plugins/babel-plugin-jsx-vars.js"), // 👈 add plugin here
-              path.resolve(
-                __dirname,
-                "plugins/babel-plugin-props-intercept.js"
-              ),
-              path.resolve(__dirname, "plugins/babel-plugin-dynamic-attrs.js"),
-              // path.resolve(
-              //   __dirname,
-              //   "plugins/babel-plugin-state-detection.js"
-              // ),
-            ],
+              plugins: [],
+            },
           },
-        },
+          {
+            loader: "babel-loader",
+            options: {
+              presets: [
+                [
+                  "@babel/preset-react",
+                  {
+                    runtime: "automatic",
+                    importSource: "rector-js", // adjust if needed
+                  },
+                ],
+              ],
+              plugins: [
+                path.resolve(
+                  __dirname,
+                  "plugins/babel-plugin-state-detection.js"
+                ),
+              ],
+            },
+          },
+        ],
       },
     ],
   },

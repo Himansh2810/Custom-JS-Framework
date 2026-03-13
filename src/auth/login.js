@@ -1,51 +1,53 @@
-import {
-  Rector,
-  defineGlobalState,
-  defineState,
-  globalState,
-  Elements as E,
-  componentState,
-} from "../../rector-js";
-import { isAlreadyLogin } from "../utils";
+// import {
+//   Rector,
+//   defineGlobalState,
+//   defineState,
+//   globalState,
+//   Elements as E,
+//   componentState,
+// } from "../../rector-js";
+// import { isAlreadyLogin } from "../utils";
+
+import { Rector, Dom as E, defineState } from "../../rector-js";
+
+const store2 = Rector.createGlobalStore({
+  user: { name: "", username: "", password: "" },
+});
 
 const LoginUtils = () => {
-  const state = componentState();
-  const setLoginData = defineState("loginData", {
+  const { user } = Rector.useGlobal(store2);
+  const loginData = defineState({
     username: "",
     password: "",
   });
 
-  const setErrorMessage = defineState("errorMes", "");
+  const errorMessage = defineState("");
 
   const handleLogin = () => {
-    const loginData = state.loginData;
-    const user = globalState.user;
-    console.log(user, loginData);
-
+    user.set({
+      username: loginData.value.username,
+      password: loginData.value.password,
+    });
     if (
-      loginData.username === user.username &&
-      loginData.password === user.password
+      loginData.value.username === user.value.username &&
+      loginData.value.password === user.value.password
     ) {
       localStorage.setItem("accessToken", "RectorJS");
       Rector.navigate("/");
     } else {
-      setErrorMessage("INVALID Username or Password.");
+      errorMessage.set("INVALID Username or Password.");
     }
   };
 
   return {
-    setLoginData,
+    loginData,
     handleLogin,
+    errorMessage,
   };
 };
 
 function Login() {
-  if (isAlreadyLogin()) {
-    Rector.navigate("/");
-    return;
-  }
-
-  const { handleLogin, setLoginData } = LoginUtils();
+  const { handleLogin, loginData, errorMessage } = LoginUtils();
 
   return (
     <E.div className="bg-gray-100 p-4 flex flex-col">
@@ -55,7 +57,7 @@ function Login() {
         type="text"
         placeholder="Username"
         oninput={(e) =>
-          setLoginData((prev) => ({ ...prev, username: e.target.value }))
+          loginData.set((prev) => ({ ...prev, username: e.target.value }))
         }
       />
       <E.input
@@ -63,7 +65,7 @@ function Login() {
         type="password"
         placeholder="Password"
         oninput={(e) =>
-          setLoginData((prev) => ({ ...prev, password: e.target.value }))
+          loginData.set((prev) => ({ ...prev, password: e.target.value }))
         }
       />
       <E.button className="bg-indigo-500 p-2 rounded-md" onclick={handleLogin}>
@@ -75,75 +77,9 @@ function Login() {
       >
         Don't have account ? Create
       </E.button>
-      <E.p className="text-rose-500">[[errorMes]]</E.p>
+      <E.p className="text-rose-500">{errorMessage.value}</E.p>
     </E.div>
   );
 }
 
-const setGlobUSer = defineGlobalState("user", {
-  name: "",
-  username: "",
-  password: "",
-});
-
-function SignUp() {
-  if (isAlreadyLogin()) {
-    Rector.navigate("/");
-    return;
-  }
-  const setUSerData = defineState("data", {
-    name: "",
-    username: "",
-    password: "",
-  });
-
-  return (
-    <E.div className="bg-gray-100 p-4 flex flex-col">
-      <E.h1>Welcome to Signup</E.h1>
-      <E.input
-        className="p-2 border border-gray-400 m-1"
-        type="text"
-        placeholder="Name"
-        name="name"
-        oninput={(e) =>
-          setUSerData((prev) => ({ ...prev, name: e.target.value }))
-        }
-      />
-      <E.input
-        className="p-2 border border-gray-400 m-1"
-        type="text"
-        placeholder="Username"
-        name="username"
-        oninput={(e) =>
-          setUSerData((prev) => ({ ...prev, username: e.target.value }))
-        }
-      />
-      <E.input
-        className="p-2 border border-gray-400 m-1"
-        type="password"
-        placeholder="Password"
-        name="password"
-        oninput={(e) =>
-          setUSerData((prev) => ({ ...prev, password: e.target.value }))
-        }
-      />
-      <E.button
-        className="bg-indigo-500 p-2 rounded-md"
-        onclick={() => {
-          setGlobUSer(state.data);
-          Rector.navigate("/login");
-        }}
-      >
-        SignUp
-      </E.button>
-      <E.button
-        className="text-indigo-500"
-        onclick={() => Rector.navigate("/login")}
-      >
-        Already have an account ? LOGIN
-      </E.button>
-    </E.div>
-  );
-}
-
-export { Login, SignUp };
+export { Login };
