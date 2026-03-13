@@ -1,4 +1,4 @@
-import { Elements as E, navigate } from "../../rector-js";
+import { Dom as E, navigate } from "../../rector-js";
 
 function NotFoundPage() {
   return (

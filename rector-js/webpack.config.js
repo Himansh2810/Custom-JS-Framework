@@ -10,12 +10,15 @@ module.exports = {
     filename: "bundle.js",
   },
   devServer: {
+    client: {
+      overlay: false, // ⬅️  This disables the red error overlay
+    },
     historyApiFallback: {
       index: "/",
     },
     static: path.join(__dirname, "public"),
-    port: 3000,
-    open: true,
+    port: 3030,
+    open: false,
   },
   plugins: [
     new HtmlWebpackPlugin({
@@ -37,20 +40,43 @@ module.exports = {
       {
         test: /\.(js|jsx)$/,
         exclude: /node_modules/,
-        use: {
-          loader: "babel-loader",
-          options: {
-            presets: [
-              [
-                "@babel/preset-react",
-                {
-                  runtime: "automatic",
-                  importSource: "rector-js", // adjust if needed
-                },
+        use: [
+          {
+            loader: "babel-loader",
+            options: {
+              presets: [
+                [
+                  "@babel/preset-react",
+                  {
+                    runtime: "automatic",
+                    importSource: "rector-js", // adjust if needed
+                  },
+                ],
               ],
-            ],
+              plugins: [],
+            },
           },
-        },
+          {
+            loader: "babel-loader",
+            options: {
+              presets: [
+                [
+                  "@babel/preset-react",
+                  {
+                    runtime: "automatic",
+                    importSource: "rector-js", // adjust if needed
+                  },
+                ],
+              ],
+              plugins: [
+                path.resolve(
+                  __dirname,
+                  "plugins/babel-plugin-state-detection.js"
+                ),
+              ],
+            },
+          },
+        ],
       },
     ],
   },

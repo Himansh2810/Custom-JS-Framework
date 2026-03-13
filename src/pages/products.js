@@ -1,5 +1,5 @@
 import {
-  initState,
+  defineState,
   RectorMap,
   Elements as E,
   Condition,
@@ -9,42 +9,40 @@ import {
 } from "../../rector-js";
 
 function Products() {
-  const setLoading = initState("loading", true);
-  const setProducts = initState("products", []);
-
-  const { id: productId } = getRouterParams();
+  const setLoading = defineState("loading", true);
+  const setProducts = defineState("products", []);
 
   const addProduct = async () => {
-    let data = await Query.get(
-      `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
-      {
-        cache: 30,
-      }
-    );
+    // let data = await Query.get(
+    //   `https://fakestoreapi.com/products${productId ? `/${productId}` : ""}`,
+    //   {
+    //     cache: 30,
+    //   }
+    // );
 
-    // let data = [
-    //   {
-    //     id: 0,
-    //     title: "Samsung S25",
-    //     category: "Mobile",
-    //     price: "699",
-    //     rating: { rate: 4.3 },
-    //   },
-    //   {
-    //     id: 1,
-    //     title: "Samsung S25",
-    //     category: "Mobile",
-    //     price: "699",
-    //     rating: { rate: 4.3 },
-    //   },
-    //   {
-    //     id: 2,
-    //     title: "Samsung S25",
-    //     category: "Mobile",
-    //     price: "699",
-    //     rating: { rate: 4.3 },
-    //   },
-    // ];
+    let data = [
+      {
+        id: 0,
+        title: "Samsung S25",
+        category: "Mobile",
+        price: "699",
+        rating: { rate: 4.3 },
+      },
+      {
+        id: 1,
+        title: "Samsung S25",
+        category: "Mobile",
+        price: "699",
+        rating: { rate: 4.3 },
+      },
+      {
+        id: 2,
+        title: "Samsung S25",
+        category: "Mobile",
+        price: "699",
+        rating: { rate: 4.3 },
+      },
+    ];
 
     if (!Array.isArray(data)) {
       data = [data];
@@ -90,7 +88,7 @@ function Products() {
         onFalseRender={() => (
           <E.div class="flex flex-wrap gap-6 p-2">
             <RectorMap
-              stateName="products"
+              data="products"
               render={(item) => <ProductCard product={item} />}
               keyExtractor={(item) => item?.id}
             />
@@ -119,7 +117,6 @@ function ProductCard({ product }) {
       <E.div class="flex justify-between items-center">
         <E.h1 class="text-[36px]">{product?.price}$</E.h1>
         <E.span>{product?.rating?.rate}/5.0</E.span>
-        <E.span>[[Products.loading]]</E.span>
       </E.div>
     </E.div>
   );
