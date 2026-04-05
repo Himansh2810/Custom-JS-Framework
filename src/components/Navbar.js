@@ -1,40 +1,28 @@
-import { Rector, Dom as E } from "../../rector-js";
+import { navigate } from "../../rector-js";
 
-function Navbar({ title = "" }) {
+function Navbar() {
   return (
-    <E.nav class="p-3 bg-blue-300 w-full  flex justify-between items-center">
-      <E.h1 class="text-[24px] font-medium tracking-wider">{title}</E.h1>
-      <E.button
-        class="px-3 py-1 bg-gray-100 rounded-md"
-        onclick={() => Rector.print(true)}
-      >
-        Debug
-      </E.button>
-      <E.button
-        class="px-3 py-1 bg-gray-100 rounded-md"
-        onclick={() => {
-          localStorage.setItem("accessToken", "");
-          Rector.navigate("/login");
-        }}
-      >
-        Logout
-      </E.button>
-    </E.nav>
+    <div className="relative w-full z-2">
+      <div className="absolute top-10 left-10 rounded-full">
+        <h2 className="text-[28px] font-medium flex items-center">
+          <span className="block  shadow bg-amber-500 text-white pl-3 pr-1 rounded-l-[8px]">
+            Rector
+          </span>
+          <span className="block shadow text-amber-500 bg-white p-1 rounded-r-[8px]">
+            JS
+          </span>
+        </h2>
+      </div>
+      <div className="absolute top-10 right-10">
+        <button
+          className="bg-amber-500 text-white pl-4 pr-3 font-medium py-2 rounded-full text-[20px] font-mono cursor-pointer hover:underline"
+          onClick={() => navigate("/docs")}
+        >
+          Docs
+        </button>
+      </div>
+    </div>
   );
 }
 
-const Footer = () => (
-  <E.footer class="px-3 py-1 bg-sky-400 fixed bottom-0 w-full">
-    @RectorJS, 2025
-  </E.footer>
-);
-
-// function Footer() {
-//   return (
-//     <E.footer class="px-3 py-1 bg-sky-400 fixed bottom-0 w-full">
-//       @RectorJS, 2025
-//     </E.footer>
-//   );
-// }
-
-export { Navbar, Footer };
+export { Navbar };

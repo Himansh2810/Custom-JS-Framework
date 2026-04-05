@@ -1,9 +1,4 @@
 const LIST_MARKER = Symbol("RECTOR_LIST");
-// type RectorRefs = {
-//   [K in keyof HTMLElementTagNameMap]: {
-//     [refName: string]: HTMLElementTagNameMap[K];
-//   };
-// };
 export { LIST_MARKER, };
 // in future
 // interface GlobalAttributes {

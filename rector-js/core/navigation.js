@@ -1,87 +1,187 @@
 import { RectorError } from "./error.js";
 class RectorNavigation {
-    constructor() {
-        this.routerParams = {};
-        this.routes = {};
-        this.layoutId = 1;
-        this.layouts = {};
-        this.activeLayout = null;
-        this.routeRegexCache = {};
+    #routerParams = {};
+    #routes = {};
+    #layoutId = 1;
+    #layouts = {};
+    getRootLayout(layoutId) {
+        return this.#layouts[layoutId];
     }
-    getRouterParams() {
-        return this.routerParams;
+    #activeLayout = null;
+    getActiveLayout(lid) {
+        return this.#activeLayout ? this.#activeLayout[lid] : null;
     }
+    setActiveLayout(layoutId, config) {
+        this.#activeLayout[layoutId] = config;
+    }
+    resetActiveLayout(data) {
+        if (data === "init") {
+            this.#activeLayout = {};
+            return;
+        }
+        this.#activeLayout = data;
+    }
+    get hasActiveLayout() {
+        return !!this.#activeLayout;
+    }
+    // public currentLayout: number | number[];
+    #NotFoundPage;
+    #routeRegexCache = {};
+    constructor() { }
+    getRouterParams = () => {
+        return this.#routerParams;
+    };
     resetRouterParams() {
-        this.routerParams = {};
+        this.#routerParams = {};
     }
-    getQueryParams() {
+    getQueryParams = () => {
         const urlSearchParams = new URLSearchParams(window.location.search);
         const params = Object.fromEntries(urlSearchParams.entries());
         return params;
-    }
-    getHash() {
+    };
+    getHash = () => {
         return window.location.hash.slice(1);
-    }
-    normalizePath(path) {
+    };
+    #normalizePath(path) {
         if (path === "/")
             return "/";
         return path.replace(/\/+$/, ""); // remove all trailing slashes
     }
-    checkRouteLayout(path, route, parentLayoutId) {
-        if (route?.layout && route?.children) {
-            this.configureLayout(path, route, parentLayoutId);
+    #validateRoute(path, route) {
+        const hasComponent = "component" in route && route.component !== undefined;
+        const hasLayout = "layout" in route && route.layout !== undefined;
+        const hasChildren = "children" in route && route.children !== undefined;
+        const hasConfig = "config" in route && route.config !== undefined;
+        // ── Must have at least one discriminant ───────────────────────────────
+        if (!hasComponent && !hasLayout) {
+            throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}':  Must have either "component" (leaf route) or "layout" (layout route).`);
         }
-        else if (route?.component) {
-            this.buildRouteRegex(path);
-            this.routes[path] = {
-                component: route?.component,
-                config: route?.config,
-                middleware: route?.middleware,
-                loading: route?.loading,
-                ...(parentLayoutId ? { lid: parentLayoutId } : {}),
+        // ── Cannot mix both discriminants ─────────────────────────────────────
+        if (hasComponent && hasLayout) {
+            throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                '"component" and "layout" cannot both be defined. ' +
+                'Use "component" for a leaf route or "layout" for a layout route, not both.');
+        }
+        // ── Leaf route branch ─────────────────────────────────────────────────
+        if (hasComponent) {
+            if (typeof route.component !== "function") {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"component" must be a function/component.');
+            }
+            if (hasLayout) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"layout" is not allowed on a leaf route. Remove "layout", or remove "component" and add "children" to make it a layout route.');
+            }
+            if (hasChildren) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"children" is not allowed on a leaf route. ' +
+                    'To nest routes, remove "component" and use "layout" + "children" instead.');
+            }
+            return { leaf: route };
+        }
+        // ── Layout route branch ───────────────────────────────────────────────
+        if (hasLayout) {
+            if (typeof route.layout !== "function") {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"layout" must be a function/component.');
+            }
+            if (!hasChildren) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"children" is required when "layout" is defined. ' +
+                    'Add a "children" object with at least one nested route.');
+            }
+            if (typeof route.children !== "object" || Array.isArray(route.children)) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"children" must be a plain object (RouteMap).');
+            }
+            if (Object.keys(route.children).length === 0) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"children" cannot be empty. Add at least one nested route, ' +
+                    'or remove "layout" and use "component" instead.');
+            }
+            if (hasConfig) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"config" is not allowed on a layout route. ' +
+                    'Move "config" into individual child routes that have a "component".');
+            }
+            if (hasComponent) {
+                throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}': ` +
+                    '"component" is not allowed on a layout route. ' +
+                    'Use "layout" for the wrapping shell and put page components inside "children".');
+            }
+            return { layout: route };
+        }
+        // Should never reach here given the checks above
+        throw new RectorError(`[Rector.NavigationError]: In defineRoute, '${path}'. Please provide valid route config.`);
+    }
+    #checkRouteLayout(path, route, parentLayoutId) {
+        const vRoute = this.#validateRoute(path, route);
+        if (vRoute.layout) {
+            this.#configureLayout(path, vRoute.layout, parentLayoutId);
+        }
+        if (vRoute.leaf) {
+            this.#buildRouteRegex(path);
+            this.#routes[path] = {
+                ...route,
+                component: route.component,
+                ...(this.#isLayoutExist(parentLayoutId) ? { lid: parentLayoutId } : {}),
             };
         }
-        else {
-            throw new RectorError("[Rector.Navigation.Error]: Component is required for routes, please provide valid Route Config.");
-        }
     }
-    buildRouteRegex(path) {
+    #buildRouteRegex(path) {
         const paramNames = [];
         const regexPath = path.replace(/:([^/]+)/g, (_, key) => {
             paramNames.push(key);
             return "([^/]+)";
         });
-        this.routeRegexCache[path] = {
+        this.#routeRegexCache[path] = {
             regex: new RegExp(`^${regexPath}$`),
             paramNames,
         };
     }
-    configureRoute(path, route) {
-        path = this.normalizePath(path);
+    #configureRoute(path, route) {
+        path = this.#normalizePath(path);
         if (!path.startsWith("/")) {
             throw new RectorError("Route path must start with '/'");
         }
-        this.checkRouteLayout(path, route);
+        const rootLayout = this.#layouts[0];
+        this.#checkRouteLayout(path, route, rootLayout?.layout ? 0 : null);
     }
-    defineRoutes(routes) {
-        Object.entries(routes).forEach(([path, route]) => {
+    defineRoutes = (config) => {
+        if (Object.keys(this.#routes).length > 0) {
+            throw new RectorError(`[Rector.Navigation]: Routes has been already defined. Can't create new instance. Modify existing.`);
+        }
+        if (!config.children) {
+            throw new RectorError(`[Rector.Navigation]: 'children' key missing from routes or provide appropriate value`);
+        }
+        if (config.middleware || config.layout || config.loader) {
+            this.#layouts[0] = {
+                middleware: config.middleware,
+                layout: config.layout,
+                loader: config.loader,
+            };
+        }
+        Object.entries(config.children).forEach(([path, route]) => {
             if (path === "*") {
                 if (!route?.component)
                     throw new RectorError("Component Not provided for wildcard route '*'");
-                this.NotFoundPage = {
+                this.#NotFoundPage = {
                     component: route.component,
                     config: route?.config,
                 };
             }
             else {
-                this.configureRoute(path, route);
+                this.#configureRoute(path, route);
             }
         });
+    };
+    #isLayoutExist(id) {
+        return id !== null && id !== undefined;
     }
-    configureLayout(path, route, parentLayoutId) {
-        const id = this.layoutId++;
+    #configureLayout(path, route, parentLayoutId) {
+        const id = this.#layoutId++;
         let lid;
-        if (parentLayoutId) {
+        if (this.#isLayoutExist(parentLayoutId)) {
             if (typeof parentLayoutId === "number") {
                 lid = [id, parentLayoutId];
             }
@@ -93,30 +193,52 @@ class RectorNavigation {
             lid = id;
         }
         Object.entries(route?.children).forEach(([pathKey, routeValue]) => {
-            const newPath = this.normalizePath(path === "/" ? pathKey : path + pathKey);
-            this.checkRouteLayout(newPath, routeValue, lid);
+            const newPath = this.#normalizePath(path === "/" ? pathKey : path + pathKey);
+            this.#checkRouteLayout(newPath, routeValue, lid);
         });
-        this.layouts[id] = route?.layout;
+        this.#layouts[id] = {
+            ...(route?.layout && { layout: route.layout }),
+            ...(route?.middleware && { middleware: route.middleware }),
+            ...(route?.loader && { loader: route.loader }),
+        };
     }
-    resolveRoute(path) {
-        let route = this.routes[path];
-        for (const extPath in this.routes) {
-            const { regex, paramNames } = this.routeRegexCache[extPath];
+    resolveRoute(initialPath) {
+        const path = this.#normalizePath(initialPath ?? window.location.pathname);
+        let route = this.#routes[path];
+        for (const extPath in this.#routes) {
+            const { regex, paramNames } = this.#routeRegexCache[extPath];
             const match = path.match(regex);
             if (match) {
                 paramNames.forEach((name, i) => {
-                    this.routerParams[name] = match[i + 1];
+                    this.#routerParams[name] = match[i + 1];
                 });
-                route = this.routes[extPath];
+                route = this.#routes[extPath];
                 break;
             }
         }
         if (!route) {
-            if (this.NotFoundPage)
-                return this.NotFoundPage;
+            if (this.#NotFoundPage)
+                return {
+                    route: this.#NotFoundPage,
+                    globalRoute: {},
+                    layoutRoute: {},
+                    path: null,
+                };
             throw new RectorError(`INVALID ROUTE: '${path}' route is not define.`);
         }
-        return route;
+        const globalRoute = this.#layouts[0] || {};
+        const isLayoutExist = this.#isLayoutExist(route.lid);
+        let crrLid = null;
+        if (isLayoutExist) {
+            if (typeof route.lid === "number") {
+                crrLid = route.lid;
+            }
+            else {
+                crrLid = route.lid[0];
+            }
+        }
+        const layoutRoute = isLayoutExist ? this.#layouts[crrLid] : {};
+        return { route, globalRoute, layoutRoute, path };
     }
 }
 const Navigation = new RectorNavigation();

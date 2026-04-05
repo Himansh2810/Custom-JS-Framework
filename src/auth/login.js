@@ -8,29 +8,26 @@
 // } from "../../rector-js";
 // import { isAlreadyLogin } from "../utils";
 
-import { Rector, Dom as E, defineState } from "../../rector-js";
-
-const store2 = Rector.createGlobalStore({
-  user: { name: "", username: "", password: "" },
-});
+import { Rector, Dom as E, state, createStore } from "../../rector-js";
+import { store } from "../store";
 
 const LoginUtils = () => {
-  const { user } = Rector.useGlobal(store2);
-  const loginData = defineState({
+  const { user } = Rector.useGlobal(store);
+  const loginData = state({
     username: "",
     password: "",
   });
 
-  const errorMessage = defineState("");
+  const errorMessage = state("");
 
   const handleLogin = () => {
     user.set({
-      username: loginData.value.username,
-      password: loginData.value.password,
+      username: loginData().username,
+      password: loginData().password,
     });
     if (
-      loginData.value.username === user.value.username &&
-      loginData.value.password === user.value.password
+      loginData().username === user().username &&
+      loginData().password === user().password
     ) {
       localStorage.setItem("accessToken", "RectorJS");
       Rector.navigate("/");
@@ -46,12 +43,12 @@ const LoginUtils = () => {
   };
 };
 
-function Login() {
+function Login({ sache = "No" }) {
   const { handleLogin, loginData, errorMessage } = LoginUtils();
 
   return (
-    <E.div className="bg-gray-100 p-4 flex flex-col">
-      <E.h1>Welcome to Login</E.h1>
+    <E.div className="bg-gray-100 p-4 flex flex-col text-gray-700">
+      <E.h1>Welcome to Login {sache}</E.h1>
       <E.input
         className="p-2 border border-gray-400 m-1"
         type="text"
@@ -77,9 +74,10 @@ function Login() {
       >
         Don't have account ? Create
       </E.button>
-      <E.p className="text-rose-500">{errorMessage.value}</E.p>
+      <E.p className="text-rose-500">{errorMessage()}</E.p>
     </E.div>
   );
 }
 
-export { Login };
+export default Login;
+// export { Login };
