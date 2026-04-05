@@ -1,8 +1,11 @@
 export class SyntheticEvent {
+    nativeEvent;
+    type;
+    target;
+    currentTarget = null;
+    _propagationStopped = false;
+    _defaultPrevented = false;
     constructor(nativeEvent) {
-        this.currentTarget = null;
-        this._propagationStopped = false;
-        this._defaultPrevented = false;
         this.nativeEvent = nativeEvent;
         this.type = nativeEvent.type;
         this.target = nativeEvent.target;

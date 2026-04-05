@@ -1,0 +1,101 @@
+global State have diff name from component state name.
+
+
+layout issues. do proper testing.
+layout restriction in defineing routes.
+
+when navigate to other route, microtask still runs & Lazy comp attahed!!! IMP
+
+function validateRoute(path: string, route: Record<string, unknown>): Route {
+  const hasComponent = "component" in route && route.component !== undefined;
+  const hasLayout    = "layout"    in route && route.layout    !== undefined;
+  const hasChildren  = "children"  in route && route.children  !== undefined;
+  const hasConfig    = "config"    in route && route.config    !== undefined;
+ 
+  // ── Must have at least one discriminant ───────────────────────────────
+  if (!hasComponent && !hasLayout) {
+    throw new RouteValidationError(
+      path,
+      'Must have either "component" (leaf route) or "layout" (layout route).'
+    );
+  }
+ 
+  // ── Cannot mix both discriminants ─────────────────────────────────────
+  if (hasComponent && hasLayout) {
+    throw new RouteValidationError(
+      path,
+      '"component" and "layout" cannot both be defined. ' +
+      'Use "component" for a leaf route or "layout" for a layout route, not both.'
+    );
+  }
+ 
+  // ── Leaf route branch ─────────────────────────────────────────────────
+  if (hasComponent) {
+    if (typeof route.component !== "function") {
+      throw new RouteValidationError(path, '"component" must be a function/component.');
+    }
+    if (hasLayout) {
+      throw new RouteValidationError(
+        path,
+        '"layout" is not allowed on a leaf route. Remove "layout", or remove "component" and add "children" to make it a layout route.'
+      );
+    }
+    if (hasChildren) {
+      throw new RouteValidationError(
+        path,
+        '"children" is not allowed on a leaf route. ' +
+        'To nest routes, remove "component" and use "layout" + "children" instead.'
+      );
+    }
+    return route as LeafRoute;
+  }
+ 
+  // ── Layout route branch ───────────────────────────────────────────────
+  if (hasLayout) {
+    if (typeof route.layout !== "function") {
+      throw new RouteValidationError(path, '"layout" must be a function/component.');
+    }
+    if (!hasChildren) {
+      throw new RouteValidationError(
+        path,
+        '"children" is required when "layout" is defined. ' +
+        'Add a "children" object with at least one nested route.'
+      );
+    }
+    if (typeof route.children !== "object" || Array.isArray(route.children)) {
+      throw new RouteValidationError(path, '"children" must be a plain object (RouteMap).');
+    }
+    if (Object.keys(route.children as object).length === 0) {
+      throw new RouteValidationError(
+        path,
+        '"children" cannot be empty. Add at least one nested route, ' +
+        'or remove "layout" and use "component" instead.'
+      );
+    }
+    if (hasConfig) {
+      throw new RouteValidationError(
+        path,
+        '"config" is not allowed on a layout route. ' +
+        'Move "config" into individual child routes that have a "component".'
+      );
+    }
+    if (hasComponent) {
+      throw new RouteValidationError(
+        path,
+        '"component" is not allowed on a layout route. ' +
+        'Use "layout" for the wrapping shell and put page components inside "children".'
+      );
+    }
+ 
+    // Recursively validate children
+    const children = route.children as Record<string, Record<string, unknown>>;
+    for (const [childPath, childRoute] of Object.entries(children)) {
+      validateRoute(`${path} > ${childPath}`, childRoute);
+    }
+ 
+    return route as LayoutRoute;
+  }
+ 
+  // Should never reach here given the checks above
+  throw new RouteValidationError(path, "Unknown route shape.");
+}

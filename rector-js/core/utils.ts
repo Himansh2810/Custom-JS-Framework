@@ -1,4 +1,4 @@
-import { JSXExpressionObj, JSXConditionObj } from "./types";
+import { JSXExpressionObj, JSXConditionObj, RectorJS } from "./types";
 
 class BiMap {
   private fwd = {};
@@ -1187,6 +1187,20 @@ function isDOMStructure(value: any) {
   );
 }
 
+function isLazyChildren(value: any): value is RectorJS.AsyncComponent {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "importFn" in value &&
+    "props" in value
+  );
+}
+
+const delay = (time: number) =>
+  new Promise((res) => {
+    setTimeout(() => res(1), time);
+  });
+
 export {
   isEqual,
   reservedJSKeys,
@@ -1201,4 +1215,6 @@ export {
   isJSXConditionObj,
   parseAndEvaluateAST,
   isDOMStructure,
+  isLazyChildren,
+  delay,
 };

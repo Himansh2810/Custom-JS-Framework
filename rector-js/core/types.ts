@@ -76,16 +76,53 @@ type RectorElements = {
   [K in TagName]: (attributes: Attrs<K>) => HTMLElementTagNameMap[K];
 };
 
-namespace RectorJSX {
+namespace RectorJS {
+  export type Component<P = {}> = (props: P) => RectorJS.Element;
+  export type AsyncComponent = {
+    importFn: () => Promise<{ default: RectorJS.Component }>;
+    props: any;
+  };
   export type Element = HTMLElement | ChildNode | DocumentFragment;
   export type DOM = {
     [K in TagName]: (attributes: Attrs<K>) => HTMLElementTagNameMap[K];
   };
+  export interface LeafRoute {
+    component: () => RectorJS.Element; // required — discriminant
+    config?: MetaConfig;
+    middleware?: (context: MiddlewareContext) => void | Promise<void>;
+    loader?: () => RectorJS.Element;
+
+    // Explicitly forbidden — assigning these is a compile error
+    layout?: never;
+    children?: never;
+  }
+  export interface LayoutRoute {
+    layout: (child: () => RectorJS.Element) => RectorJS.Element; // required — discriminant
+    children: {
+      [path: string]: RectorJS.Route;
+    }; // required when layout is present
+    middleware?: (context: MiddlewareContext) => void | Promise<void>;
+    loader?: () => RectorJS.Element;
+
+    // Explicitly forbidden
+    component?: never;
+    config?: never;
+  }
+  export type Route = LeafRoute | LayoutRoute;
 }
 
-type StateUsage = {
-  [state: string]: StateUseObj[];
-};
+/*
+  {
+    layout?: (child: () => RectorJS.Element) => HTMLElement;
+    children?: {
+      [path: string]: RectorJS.Route;
+    };
+    component?: () => RectorJS.Element;
+    config?: MetaConfig;
+    middleware?: (context: MiddlewareContext) => void | Promise<void>;
+    loader?: () => RectorJS.Element;
+  };
+*/
 
 type AttrsUsage = {
   [state: string]: AttrUseObj[];
@@ -166,40 +203,82 @@ type Block = {
   componentRendered: string[];
   stateUsageCleanUps: (() => void)[];
   stateUsageRefIds: number[];
+  layoutId?: number;
 };
 
 type State<T> = {
-  readonly value: T;
+  (): T;
+  /** set any value of state */
   set(val: T | ((prev: T) => T)): void;
 };
 
 type List<T> = {
-  readonly value: readonly T[];
-  readonly length: number;
+  (): T[];
+  /** size/length of list */
+  readonly size: number;
+  /** set any value of list */
   set(val: T[] | ((prev: readonly T[]) => T[])): void;
+  /** update list at any index */
   update(index: number, value: T): void;
+  /** insert value/values to list at any index */
   insert(index: number, ...values: T[]): void;
+  /** insert value/values to list after last index */
   push(...values: T[]): void;
+  /** insert value/values to list at start of list */
   unshift(...values: T[]): void;
+  /** remove last item of list */
   pop(): void;
+  /** remove first item of list */
   shift(): void;
+  /** remove item of list at any index */
   remove(index: number): void;
+  /** remove range of items from list between any indexes */
   removeRange(start: number, end: number): void;
 };
 
-type BatchTypes = "insert" | "update" | "remove" | "removeRange";
+// type BatchTypes = "insert" | "update" | "remove" | "removeRange";
+
+// type RenderBatch =
+//   | {
+//       type: "set";
+//       index?: number;
+//       value?: any;
+//       state: State<any> | List<any>;
+//     }
+//   | {
+//       type: BatchTypes;
+//       index?: number;
+//       value?: any;
+//       state: List<any>;
+//     };
 
 type RenderBatch =
   | {
       type: "set";
-      index?: number;
-      value?: any;
+      oldValue: any;
       state: State<any> | List<any>;
     }
   | {
-      type: BatchTypes;
-      index?: number;
-      value?: any;
+      type: "insert";
+      index: number;
+      values: any[];
+      state: List<any>;
+    }
+  | {
+      type: "update";
+      index: number;
+      value: any;
+      state: List<any>;
+    }
+  | {
+      type: "removeRange";
+      start: number;
+      end: number;
+      state: List<any>;
+    }
+  | {
+      type: "remove";
+      index: number;
       state: List<any>;
     };
 
@@ -226,8 +305,13 @@ type ElementInterceptors = {
 
 // type Rector.JSX.Element = () => HTMLElement | ChildNode;
 
-type RouteKeyPair = {
-  [path: string]: RouteConfig;
+type RouteConfig = {
+  middleware?: (context: MiddlewareContext) => void | Promise<void>;
+  loader?: () => RectorJS.Element;
+  layout?: (child: () => RectorJS.Element) => RectorJS.Element;
+  children: {
+    [path: string]: RectorJS.Route;
+  };
 };
 
 type MetaConfig = {
@@ -246,21 +330,18 @@ type NavigationAction =
   | { type: "abort"; fallbackUrl?: string }
   | { type: "redirect"; to: string };
 
-type RouteConfig = {
-  layout?: (child: () => RectorJSX.Element) => HTMLElement;
-  children?: RouteKeyPair;
-  component?: () => RectorJSX.Element;
-  config?: MetaConfig;
-  middleware?: (context: MiddlewareContext) => void | Promise<void>;
-  loading?: () => RectorJSX.Element;
-};
-
 type Route = {
   lid?: number | number[];
-  component: () => RectorJSX.Element;
+  component: () => RectorJS.Element;
   config?: MetaConfig;
   middleware?: (context: MiddlewareContext) => void | Promise<void>;
-  loading?: () => RectorJSX.Element;
+  loader?: () => RectorJS.Element;
+};
+
+type RootLayoutConfig = {
+  middleware?: (context: MiddlewareContext) => void | Promise<void>;
+  loader?: () => RectorJS.Element;
+  layout?: (child: () => RectorJS.Element) => RectorJS.Element;
 };
 interface JSXExpressionObj {
   eval: () => any;
@@ -276,10 +357,10 @@ interface JSXConditionObj {
 
 const LIST_MARKER = Symbol("RECTOR_LIST");
 
-type LIST<T> = { readonly [LIST_MARKER]: true; readonly value: T[] };
+type ListMarker<T> = { readonly [LIST_MARKER]: true; readonly value: T[] };
 
 type GlobalStates<T> = {
-  [K in keyof T]: T[K] extends LIST<infer U>
+  [K in keyof T]: T[K] extends ListMarker<infer U>
     ? List<U> // If it is already a List, return List Type
     : State<T[K]>; // If it is a primitive (number/string), wrap in State Type
 };
@@ -288,9 +369,13 @@ type GlobalStates<T> = {
 //     [refName: string]: HTMLElementTagNameMap[K];
 //   };
 // };
+type ParentScope = {
+  state: { [stateName: string]: State<any> };
+  list: { [stateName: string]: List<any> };
+};
 
 export {
-  LIST,
+  ListMarker,
   LIST_MARKER,
   GlobalStates,
   Attrs,
@@ -304,12 +389,11 @@ export {
   LoopBlockConfig,
   ElementInterceptors,
   Route,
-  RouteKeyPair,
   RouteConfig,
   JSXExpressionObj,
   JSXConditionObj,
   MetaConfig,
-  RectorJSX,
+  RectorJS,
   AttrsUsage,
   State,
   List,
@@ -319,6 +403,8 @@ export {
   NavigationAction,
   EffectOptions,
   ElementRef,
+  ParentScope,
+  RootLayoutConfig,
 };
 
 // in future

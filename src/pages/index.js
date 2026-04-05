@@ -1,4 +1,3 @@
-import Products from "./products";
-import Welcome from "./welcome";
+import LandingPage from "./LandingPage";
 
-export { Products, Welcome };
+export { LandingPage };

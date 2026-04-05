@@ -1,8 +1,7 @@
 class BiMap {
-    constructor() {
-        this.fwd = {};
-        this.bwd = {};
-    }
+    fwd = {};
+    bwd = {};
+    constructor() { }
     set(key, value) {
         this.fwd[key] = value;
         this.bwd[value] = key;
@@ -1003,4 +1002,13 @@ function isDOMStructure(value) {
         typeof value.nodeType === "number" &&
         [1, 3, 8, 11].includes(value.nodeType));
 }
-export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, removeValueFromObject, isJSXExpressionObj, isJSXConditionObj, parseAndEvaluateAST, isDOMStructure, };
+function isLazyChildren(value) {
+    return (value !== null &&
+        typeof value === "object" &&
+        "importFn" in value &&
+        "props" in value);
+}
+const delay = (time) => new Promise((res) => {
+    setTimeout(() => res(1), time);
+});
+export { isEqual, reservedJSKeys, selfClosingTags, estimateObjectSize, isComponentFunction, isPlainObject, isCamelCase, styleObjectToCss, removeValueFromObject, isJSXExpressionObj, isJSXConditionObj, parseAndEvaluateAST, isDOMStructure, isLazyChildren, delay, };

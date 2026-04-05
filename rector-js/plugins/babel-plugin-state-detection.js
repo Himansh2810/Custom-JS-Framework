@@ -1,32 +1,23 @@
 const generate = require("@babel/generator").default;
 
 module.exports = function ({ types: t }) {
+  const ALLOWED_STATE_PROPERTY = ["size"];
   function isStateCallee(path, t) {
     const init = path.node.init;
     if (t.isCallExpression(init)) {
       const node = init.callee;
 
-      if (t.isIdentifier(node, { name: "defineState" })) return true;
-      if (t.isIdentifier(node, { name: "defineList" })) return true;
+      if (t.isIdentifier(node, { name: "state" })) return true;
 
       if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
         const isRectorObj = t.isIdentifier(node.object, { name: "Rector" });
 
         let isDefine =
           (!node.computed &&
-            t.isIdentifier(node.property, { name: "defineState" })) ||
+            t.isIdentifier(node.property, { name: "state" })) ||
           (node.computed &&
             t.isStringLiteral &&
-            t.isStringLiteral(node.property, { value: "defineState" }));
-
-        if (!isDefine) {
-          isDefine =
-            (!node.computed &&
-              t.isIdentifier(node.property, { name: "defineList" })) ||
-            (node.computed &&
-              t.isStringLiteral &&
-              t.isStringLiteral(node.property, { value: "defineList" }));
-        }
+            t.isStringLiteral(node.property, { value: "state" }));
 
         return isRectorObj && isDefine;
       }
@@ -34,56 +25,56 @@ module.exports = function ({ types: t }) {
     return false;
   }
 
-  function isUseStateOfCallee(init, t) {
-    if (!t.isCallExpression(init)) return;
+  function isFromParentCallee(node, t) {
+    // ensure destructuring
+    if (!t.isObjectPattern(node.id)) return;
 
-    const node = init.callee;
-    // useStateOf(...)
-    if (t.isIdentifier(node, { name: "useStateOf" })) return true;
+    const init = node.init;
 
-    // Rector.useStateOf(...)  or Rector["useStateOf"]
-    if (t.isMemberExpression(node)) {
-      const objOK = t.isIdentifier(node.object, { name: "Rector" });
-      const propOK =
-        (!node.computed &&
-          t.isIdentifier(node.property, { name: "useStateOf" })) ||
-        (node.computed &&
-          t.isStringLiteral(node.property, { value: "useStateOf" }));
-      return objOK && propOK;
-    }
+    if (!t.isMemberExpression(init)) return;
 
-    return false;
+    // detect .state / .list
+    if (!t.isIdentifier(init.property)) return;
+    const prop = init.property.name;
+
+    if (prop !== "state" && prop !== "list") return;
+
+    // detect from()
+    if (!t.isCallExpression(init.object)) return;
+    const call = init.object;
+
+    if (!t.isIdentifier(call.callee, { name: "from" })) return;
+
+    const vars = [];
+
+    node.id.properties.forEach((p) => {
+      if (t.isRestElement(p)) return;
+
+      // const { state1 }
+      if (t.isIdentifier(p.key) && t.isIdentifier(p.value)) {
+        vars.push(p.value.name);
+      }
+
+      // const { state1: state2 }
+      else if (t.isIdentifier(p.value)) {
+        vars.push(p.value.name);
+      }
+
+      // const { [stateName]: state3 }
+      else if (t.isComputedPropertyName && t.isIdentifier(p.value)) {
+        vars.push(p.value.name);
+      }
+    });
+
+    return vars;
   }
 
-  function isUseParentStateCallee(init, t) {
+  function isUseGlobalCallee(init, t) {
     if (!t.isCallExpression(init)) return;
 
     const node = init.callee;
-    // useStateOf(...)
-    if (t.isIdentifier(node, { name: "useParentState" })) return true;
-
-    // Rector.useStateOf(...)  or Rector["useStateOf"]
-    if (t.isMemberExpression(node)) {
-      const objOK = t.isIdentifier(node.object, { name: "Rector" });
-      const propOK =
-        (!node.computed &&
-          t.isIdentifier(node.property, { name: "useParentState" })) ||
-        (node.computed &&
-          t.isStringLiteral(node.property, { value: "useParentState" }));
-      return objOK && propOK;
-    }
-
-    return false;
-  }
-
-  function isUseGlobalStateOfCallee(init, t) {
-    if (!t.isCallExpression(init)) return;
-
-    const node = init.callee;
-    // useStateOf(...)
     if (t.isIdentifier(node, { name: "useGlobal" })) return true;
 
-    // Rector.useStateOf(...)  or Rector["useStateOf"]
     if (t.isMemberExpression(node)) {
       const objOK = t.isIdentifier(node.object, { name: "Rector" });
       const propOK =
@@ -144,7 +135,7 @@ module.exports = function ({ types: t }) {
     return stateArr;
   }
 
-  function traverseNode(path, stateRef) {
+  function traverseNode2(path, stateRef) {
     let stateVars = [];
     path.traverse({
       Identifier(innerPath) {
@@ -221,6 +212,85 @@ module.exports = function ({ types: t }) {
     return stateVars;
   }
 
+  function traverseStateProperty(path, stateRef) {
+    const { node } = path;
+    const obj = node.object;
+
+    if (t.isIdentifier(obj)) {
+      if (!stateRef.has(obj.name)) return;
+      // console.log("obj.name: ", obj.name);
+      const prop = node.property;
+      let propName = null;
+
+      if (!node.computed && t.isIdentifier(prop)) {
+        // posts.size
+        propName = prop.name;
+      }
+
+      if (node.computed && t.isStringLiteral(prop)) {
+        // posts['size']
+        propName = prop.value;
+      }
+
+      if (!propName) return;
+      if (ALLOWED_STATE_PROPERTY.includes(propName)) {
+        return obj.name;
+      }
+    }
+  }
+
+  function traverseNode(path, stateRef) {
+    let stateVars = [];
+
+    if (path.isCallExpression()) {
+      const { callee, arguments: args } = path.node;
+      if (!t.isIdentifier(callee)) return;
+      const stateName = callee.name;
+      if (stateRef.has(stateName)) {
+        if (args.length !== 0) {
+          throw path.buildCodeFrameError(
+            `${callee.name}() is a reactive state, it does not accept arguments.`,
+          );
+        }
+        stateVars.push(stateName);
+      }
+      return stateVars;
+    }
+
+    if (path.isMemberExpression()) {
+      const memberProp = traverseStateProperty(path, stateRef);
+      if (memberProp) {
+        stateVars.push(memberProp);
+      }
+      return stateVars;
+    }
+
+    path.traverse({
+      MemberExpression(mbPath) {
+        const memberProp = traverseStateProperty(mbPath, stateRef);
+        if (memberProp) {
+          stateVars.push(memberProp);
+        }
+        return;
+      },
+      CallExpression(callPath) {
+        const { callee, arguments: args } = callPath.node;
+        if (!t.isIdentifier(callee)) return;
+        const stateName = callee.name;
+        if (stateRef.has(stateName)) {
+          if (args.length !== 0) {
+            throw path.buildCodeFrameError(
+              `${callee.name}() is a reactive state, it does not accept arguments.`,
+            );
+          }
+          stateVars.push(stateName);
+        }
+      },
+    });
+
+    return stateVars;
+  }
+
   function isComponentPropExpression(path, systemComponents) {
     const attrPath = path.parentPath;
     if (!attrPath?.isJSXAttribute()) return false;
@@ -250,9 +320,15 @@ module.exports = function ({ types: t }) {
         const importPath = path.node.source.value;
         if (importPath && importPath?.endsWith("rector-js")) {
           path.node.specifiers.forEach((spec) => {
-            if (spec.imported.name === "For") {
-              state.systemComponents?.push(spec.local.name);
+            if (t.isImportSpecifier(spec)) {
+              if (spec.imported.name === "For") {
+                state.systemComponents?.push(spec.local.name);
+              }
             }
+
+            // if (spec.imported.name === "For") {
+            //   state.systemComponents?.push(spec.local.name);
+            // }
           });
         }
       },
@@ -292,77 +368,44 @@ module.exports = function ({ types: t }) {
       },
 
       VariableDeclarator(path, state) {
-        // Track: const count = defineState("mycount", 0);
+        // Track: const count = state("mycount", 0);
 
         if (isStateCallee(path, t)) {
           state.stateTable.add(path.node.id.name);
         }
 
         const node = path.node;
-        if (isUseStateOfCallee(node.init, t)) {
-          // Case 1: const { s1, s2 } = useStateOf("Parent")
-          if (t.isObjectPattern(node.id)) {
-            node.id.properties.forEach((prop) => {
-              if (t.isObjectProperty(prop) && t.isIdentifier(prop.key)) {
-                // s1, s2
-                state.stateTable.add(prop.key.name);
-              }
-            });
-          }
-
-          // Case 2: const state = useStateOf("Parent")
-          else if (t.isIdentifier(node.id)) {
-            // const args = node.init.arguments;
-            //  const parentName = t.isStringLiteral(args[0]) ? args[0].value : null;
-            // const localName = node.id.name;
-            // state.stateTable.extStates[localName] = {
-            //   type: "declare",
-            //   parentName,
-            // };
-            throw new Error(
-              'Use useStateOf as destructuring the states, eg. const { s1, s2 } = useStateOf("Parent")',
-            );
-          }
+        const tempVars = isFromParentCallee(node, t);
+        if (tempVars) {
+          tempVars?.forEach((stateName) => {
+            state.stateTable.add(stateName);
+          });
         }
 
-        if (isUseParentStateCallee(node.init, t)) {
-          if (t.isIdentifier(node.id)) {
-            state.stateTable.add(node.id.name);
-          }
-        }
-        if (isUseGlobalStateOfCallee(node.init, t)) {
-          // const args = node.init.arguments;
-          // const parentName = t.isStringLiteral(args[0]) ? args[0].value : null;
-
-          // Case 1: const { s1, s2 } = useGlobalState()
+        if (isUseGlobalCallee(node.init, t)) {
+          // Case 1: const { s1, s2 } = useGlobal()
           if (t.isObjectPattern(node.id)) {
-            node.id.properties.forEach((prop) => {
-              if (
-                t.isIdentifier(prop.key) &&
-                t.isIdentifier(prop.value) &&
-                prop.key.name === prop.value.name
-              ) {
-                state.stateTable.add(prop.key.name);
-                return;
+            node.id.properties.forEach((p) => {
+              if (t.isRestElement(p)) return;
+
+              // const { state1 }
+              if (t.isIdentifier(p.key) && t.isIdentifier(p.value)) {
+                state.stateTable.add(p.value.name);
               }
 
-              if (t.isIdentifier(prop.key) && t.isIdentifier(prop.value)) {
-                console.log("prop.key.name: ", prop.value.name);
-                state.stateTable.add(prop.value.name); // s1, s2
+              // const { state1: state2 }
+              else if (t.isIdentifier(p.value)) {
+                state.stateTable.add(p.value.name);
+              }
+
+              // const { [stateName]: state3 }
+              else if (t.isComputedPropertyName && t.isIdentifier(p.value)) {
+                state.stateTable.add(p.value.name);
               }
             });
-          }
-
-          // Case 2: const state = useGlobalState()
-          else if (t.isIdentifier(node.id)) {
-            // const localName = node.id.name;
-            // state.stateTable.extStates[localName] = {
-            //   type: "declare",
-            //   parentName: "$",
-            // };
-
-            throw new Error(
-              "Use useGlobalState as destructuring the states, eg. const { s1, s2 } = useGlobalState()",
+          } else {
+            throw path.buildCodeFrameError(
+              `Extract state from useGlobal() as destructured properties. const { state1, state2 } = useGlobal().`,
             );
           }
         }
@@ -387,35 +430,6 @@ module.exports = function ({ types: t }) {
           // const { localStates = {}, extStates = {} } = stateProps ?? {};
 
           const node = exprPath.node;
-
-          // 🟢 Handle simple {count} or {someState} expressions directly
-          if (t.isIdentifier(node)) {
-            const name = node.name;
-            // console.log("name: ", name);
-            if (statesRef.has(name)) {
-              const stateArr = getStateConfig([name]);
-
-              const wrappedExpression = t.objectExpression([
-                t.objectProperty(
-                  t.identifier("states"),
-                  t.arrayExpression(stateArr),
-                ),
-                t.objectProperty(
-                  t.identifier("eval"),
-                  t.arrowFunctionExpression(
-                    [], // t.objectPattern(stateContext)
-                    node,
-                  ),
-                ),
-              ]);
-
-              path.replaceWith(t.jsxExpressionContainer(wrappedExpression));
-              path.skip();
-              return;
-            }
-
-            return;
-          }
 
           // Traverse only the expression subtree with correct scope/parent info
           const stateVars = traverseNode(exprPath, statesRef);
@@ -461,6 +475,8 @@ module.exports = function ({ types: t }) {
 
           const testPath = path.get("expression.test");
           const testStateVars = traverseNode(testPath, stateRef);
+          const code = generate(exprPath.node).code;
+          console.log("code: ", code, "\n\n");
 
           if (!testStateVars.length) return;
 
@@ -506,6 +522,35 @@ module.exports = function ({ types: t }) {
 };
 
 /*
+
+  // 🟢 Handle simple {count} or {someState} expressions directly
+          if (t.isIdentifier(node)) {
+            const name = node.name;
+            // console.log("name: ", name);
+            if (statesRef.has(name)) {
+              const stateArr = getStateConfig([name]);
+
+              const wrappedExpression = t.objectExpression([
+                t.objectProperty(
+                  t.identifier("states"),
+                  t.arrayExpression(stateArr),
+                ),
+                t.objectProperty(
+                  t.identifier("eval"),
+                  t.arrowFunctionExpression(
+                    [], // t.objectPattern(stateContext)
+                    node,
+                  ),
+                ),
+              ]);
+
+              path.replaceWith(t.jsxExpressionContainer(wrappedExpression));
+              path.skip();
+              return;
+            }
+
+            return;
+          }
 
  JSXExpressionContainer(path, state) {
         const exprPath = path.get("expression");

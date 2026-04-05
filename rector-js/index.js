@@ -1,31 +1,27 @@
-import {
-  Rector,
-  defineState,
+import { Rector, For, Await, Portal, state, Navigation } from "./core/rector";
+
+import { Query } from "./apis/index.js";
+
+const { defineRoutes, getHash, getQueryParams, getRouterParams } = Navigation;
+
+const {
+  setErrorBoundary,
   setEffect,
-  defineRoutes,
-  Dom,
-  For,
   navigate,
   renderApp,
   useElementRef,
-  getQueryParams,
-  getRouterParams,
-  getHash,
-  createGlobalStore,
-  defineList,
+  createStore,
   useGlobal,
-  useStateOf,
-  useListOf,
-  Portal,
-  useParentState,
-} from "./core/rector.js";
-
-import { Query } from "./apis/index.js";
+  fromParent,
+  list,
+  load,
+  elements: Dom,
+} = Rector;
 
 export {
   Query,
   Rector,
-  defineState,
+  state,
   setEffect,
   defineRoutes,
   Dom,
@@ -36,11 +32,14 @@ export {
   getQueryParams,
   getRouterParams,
   getHash,
-  defineList,
   useGlobal,
-  useStateOf,
-  useListOf,
-  createGlobalStore,
+  createStore,
   Portal,
-  useParentState,
+  list,
+  fromParent,
+  Await,
+  load,
+  setErrorBoundary,
 };
+
+export default Rector;
